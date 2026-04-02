@@ -97,6 +97,7 @@ class PreheatStatusSensor(PreheatBaseSensor):
             "next_arrival": data.next_arrival.isoformat() if data.next_arrival else None,
             "next_departure": data.next_departure.isoformat() if data.next_departure else None,
             "optimal_stop_time": data.optimal_stop_time.isoformat() if data.optimal_stop_time else None,
+            "coast_minutes_per_k": round(self.coordinator.cooling_analyzer.learned_tau * 60.0, 1),  # Room thermal time constant (cool 1°C)
         }
 
 class NextEventSensor(PreheatBaseSensor):
