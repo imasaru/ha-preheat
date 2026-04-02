@@ -1,0 +1,1550 @@
+blueprint:
+  name: EN 16798-1 – Smart Setpoint v5.3.0
+  description: >
+    Automated setpoint control strictly following EN 16798-1 & ASR A3.5 logic.
+    
+     **⚠️ IMPORTANT:**
+    - Designed for **Metric Systems (°C)** only.
+  domain: automation
+  author: Tobias Paul
+  source_url: "https://gist.github.com/Ecronika/6751f92f7d5717bbe14b43e5ee36ebe7"
+  homeassistant:
+    min_version: 2024.10.0
+
+  # ----------------------------------------------------------------------------
+  # INPUT DEFINITIONS
+  # ----------------------------------------------------------------------------
+  input:
+    climate_entity:
+      name: Climate Device
+      description: The thermostat to control.
+      selector:
+        entity:
+          multiple: false
+          filter:
+            - domain: climate
+    room_type:
+      name: Room Category
+      description: Defines the comfort band (EN 16798-1).
+      default: living_room
+      selector:
+        select:
+          mode: dropdown
+          options:
+          - label: Living Room / Office (21.5°C, Cat. II)
+            value: living_room
+          - label: Children's Room (22.0°C, Cat. II)
+            value: kids_room
+          - label: Bedroom (18.5°C, Cat. III)
+            value: bedroom
+          - label: Kitchen (20.5°C, Cat. II)
+            value: kitchen
+          - label: Bathroom (22.5°C, Cat. I)
+            value: bathroom
+          - label: WC / Restroom Office (21.0°C, Cat. II)
+            value: wc_office
+          - label: Hallway / Utility (17.5°C, Cat. III)
+            value: hallway
+          - label: Workshop (17.0°C, Cat. III)
+            value: workshop
+          - label: Storage / Frost Protection (~16°C)
+            value: storage
+    
+    section_presence_eco:
+      name: Presence, Night & Eco
+      icon: mdi:home-account
+      collapsed: true
+      input:
+        occupancy_sensor:
+          name: Occupancy Sensor / Schedule
+          description: Leave empty = Always 'Present' (Comfort).
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: 
+                  - binary_sensor
+                  - input_boolean
+                  - schedule
+                  - switch
+        pre_heat_sensor:
+          name: Pre-Heat / Forced Comfort
+          description: Leave empty = Disabled. Overrides Sleep Mode.
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: 
+                  - binary_sensor
+                  - input_boolean
+                  - schedule
+                  - switch
+        optimal_stop_sensor:
+          name: Optimal Stop (Eco-lite)
+          description: >
+            Applies a small comfort reduction (e.g. -1°C) to save energy before leaving ("Coasting"). 
+            Yields to Sleep and Eco Mode; overridden by Pre-Heat.
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: 
+                  - binary_sensor
+                  - input_boolean
+                  - switch
+        optimal_stop_shift_k:
+          name: Optimal Stop Shift (Temperature)
+          description: Temperature shift during Optimal Stop (relative to Comfort Setpoint).
+          default: 1.0
+          selector:
+            number:
+              min: 0.0
+              max: 4.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+        sleep_sensor:
+          name: Night/Sleep Sensor
+          description: Leave empty = Sleep never active.
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: 
+                  - binary_sensor
+                  - input_boolean
+                  - schedule
+                  - switch
+        eco_shift_k:
+          name: Eco Shift (Temperature)
+          description: Degrees to shift when ABSENT (e.g., 2.0°C).
+          default: 2.0
+          selector:
+            number:
+              min: 0.0
+              max: 8.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+        sleep_shift_k:
+          name: Sleep Shift (Temperature)
+          description: Degrees to shift when SLEEPING (e.g., 2.0°C).
+          default: 2.0
+          selector:
+            number:
+              min: 0.0
+              max: 5.0
+              step: 0.1
+              mode: slider
+              unit_of_measurement: "°C"
+        sleep_cooling_cooler:
+          name: Sleep Cooling Strategy
+          description: >
+            **OFF (Default):** Energy Saving (Sleep = Warmer/Less Cooling).
+            **ON:** Comfort (Sleep = Cooler).
+          default: false
+          selector:
+            boolean: {}
+        eco_allow_below_band:
+          name: Allow Deep Eco
+          description: If enabled, Eco temp can drop below strict EN/ASR limits.
+          default: true
+          selector:
+            boolean: {}
+        occupancy_delay_off_min:
+          name: Occupancy Absence Delay
+          description: >
+            Time (in minutes) to wait after the occupancy sensor goes OFF before
+            switching to Eco mode. Prevents false Eco triggers from brief absences
+            (e.g., visiting bathroom, moving between rooms).
+            Recommended: 5–15 min per EN ISO 52120-1 Class B.
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 30
+              step: 1
+              unit_of_measurement: min
+              mode: slider
+
+    section_safety:
+      name: Safety & Physics
+      icon: mdi:shield-home
+      collapsed: true
+      input:
+        humidity_sensor:
+          name: Indoor Humidity Sensor
+          description: Required for Mold Protection & Dew Point Guard.
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: sensor
+                  device_class: humidity
+        operative_temp_sensor:
+          name: Operative Temp / Globe Sensor
+          description: "Correction for radiant heat/cold walls. Must be a temperature sensor (°C)."
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: 
+                  - sensor
+                  - input_number
+        mold_protection_rh:
+          name: Mold Protection Threshold
+          description: Max humidity. If exceeded, heating is raised to min 18°C.
+          default: 65.0
+          selector:
+            number:
+              min: 50.0
+              max: 80.0
+              step: 5.0
+              mode: slider
+              unit_of_measurement: "%"
+        minimum_limit_temp:
+          name: Safety Floor (Frost Protection)
+          description: Absolute minimum target temperature.
+          default: 16.0
+          selector:
+            number:
+              min: 5.0
+              max: 18.0
+              step: 0.5
+              mode: slider
+              unit_of_measurement: "°C"
+        minimum_limit_rh:
+          name: Minimum Humidity Floor (Dry Air Protection)
+          description: >
+            If indoor RH drops below this threshold during heating, the blueprint
+            will either reduce the heating setpoint or turn off heating temporarily.
+            EN ISO 7730 baseline: 40% RH. FGK/German health recommendation: 40–60%.
+            DIN 1946-6 regulatory minimum: 30% RH. Set to 0 to disable.
+          default: 40.0
+          selector:
+            number:
+              min: 0.0
+              max: 55.0
+              step: 5.0
+              unit_of_measurement: '%'
+              mode: slider
+        dry_air_action:
+          name: Dry Air Response
+          description: >
+            What to do when humidity drops below the minimum floor.
+            'Reduce Setpoint' lowers the heating target by the configured shift.
+            'Turn Off' cuts heating immediately (more aggressive).
+          default: reduce
+          selector:
+            select:
+              options:
+              - label: Reduce Setpoint (Recommended)
+                value: reduce
+              - label: Turn Off Heating
+                value: "off"
+              custom_value: false
+              sort: false
+              multiple: false
+        dry_air_setpoint_shift_k:
+          name: Dry Air Setpoint Reduction (°C)
+          description: >
+            How much to lower the heating setpoint when air is too dry.
+            Only used if 'Reduce Setpoint' is selected above.
+          default: 2.0
+          selector:
+            number:
+              min: 0.5
+              max: 5.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+    section_window:
+      name: Window Control
+      icon: mdi:window-open-variant
+      collapsed: true
+      input:
+        window_sensor:
+          name: Window Sensor
+          description: Leave empty = No window logic.
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: binary_sensor
+                  device_class:
+                    - window
+                    - door
+                    - garage_door
+                    - opening
+        window_open_preset:
+          name: Window Open Preset
+          description: "Optional: Use Preset instead of 'Off' (e.g. for KNX/Tado)."
+          default: "none"
+          selector:
+            select:
+              mode: dropdown
+              custom_value: true
+              options:
+                - label: "None (Use 'Off' Mode)"
+                  value: "none"
+                - label: "Building Protection (KNX)"
+                  value: "building_protection"
+                - label: "Away"
+                  value: "away"
+
+    section_adaptive:
+      name: Adaptive Comfort & Season
+      icon: mdi:thermometer
+      collapsed: true
+      input:
+        trm_sensor:
+          name: Outdoor Temp / Weather Entity
+          description: >
+            Leave empty = Quick Start (Season follows device).
+            Recommended: 'weather.*' or outdoor sensor.
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: 
+                  - sensor
+                  - weather
+        allow_weather_adaptive:
+          name: Allow Adaptive from Weather
+          description: >
+            If enabled, 'weather.*' entities will also shift the comfort band (Caution: Jumping!).
+            If disabled (Default), 'weather.*' only sets the Season (Heating/Cooling).
+          default: false
+          selector:
+            boolean: {}
+
+    section_system:
+      name: System Policy
+      icon: mdi:hvac
+      collapsed: true
+      input:
+        system_type:
+          name: HVAC System Type
+          default: auto_detect
+          selector:
+            select:
+              options:
+              - label: Auto detection
+                value: auto_detect
+              - label: Heating only
+                value: heating
+              - label: Cooling only
+                value: cooling
+              - label: Heating + Cooling
+                value: heat_cool
+        transition_policy:
+          name: Transition Season Policy
+          description: Behavior when outdoor temp is neutral (10-15°C).
+          default: heating
+          selector:
+            select:
+              options:
+              - label: Bias towards Heating
+                value: heating
+              - label: Bias towards Cooling
+                value: cooling
+              - label: Neutral (Follow Device/Season)
+                value: neutral
+              - label: Auto (Neutral Threshold)
+                value: auto
+        summer_lock_trm:
+          name: Summer Cut-Off (Heating Limit)
+          default: 19.0
+          selector:
+            number:
+              min: 15.0
+              max: 25.0
+              step: 0.5
+              mode: slider
+              unit_of_measurement: "°C"
+        force_preset_mode:
+          name: Force Preset Mode
+          description: Enforces a specific preset (e.g. 'comfort').
+          default: "none"
+          selector:
+            select:
+              mode: dropdown
+              custom_value: true
+              options:
+                - label: "None (Default)"
+                  value: "none"
+                - label: "Comfort"
+                  value: "comfort"
+                - label: "Home"
+                  value: "home"
+        enable_logbook:
+          name: Enable Logbook
+          description: Writes detailed changes to the HA Logbook.
+          default: false
+          selector:
+            boolean: {}
+        overshoot_enabled:
+          name: Enable Overshoot Shutoff
+          description: >
+            Turns off heating when the room significantly exceeds the setpoint.
+            Saves energy in well-insulated rooms (e.g. Tokyo 3F apartment with
+            low heat loss). Based on EN ISO 52120-1 modulating control.
+          default: false
+          selector:
+            boolean: {}
+        overshoot_threshold_k:
+          name: Overshoot Threshold (°C above setpoint)
+          description: >
+            Temperature rise above setpoint that triggers shutoff.
+            Recommended: 1.0–2.0°C per EN 16798-1 Category II comfort band tolerance.
+          default: 1.5
+          selector:
+            number:
+              min: 0.5
+              max: 4.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+    section_ramp:
+      name: Ramp Limiting
+      icon: mdi:tune
+      collapsed: true
+      input:
+        ramp_enabled:
+          name: Enable Ramp Limiting
+          description: Warning! Setpoint changes will happen very slowly.
+          default: false
+          selector:
+            boolean: {}
+        ramp_up_kph:
+          name: Heating Ramp Speed
+          default: 2.0
+          selector:
+            number:
+              min: 0.1
+              max: 10.0
+              step: 0.1
+              unit_of_measurement: "°C/h"
+        ramp_down_kph:
+          name: Cooling Ramp Speed
+          default: 3.0
+          selector:
+            number:
+              min: 0.1
+              max: 10.0
+              step: 0.1
+              unit_of_measurement: "°C/h"
+
+    section_manual_hold:
+      name: Manual Override
+      icon: mdi:hand-back-right
+      collapsed: true
+      input:
+        manual_hold_mode:
+          name: Override Behavior
+          default: "off"
+          selector:
+            select:
+              options:
+                - label: "Grace Period Only (Best Effort)"
+                  value: "off"
+                - label: "Keep until... (Persistent Timer)"
+                  value: "datetime"
+        manual_hold_minutes:
+          name: Override Duration
+          default: 75
+          selector:
+            number:
+              min: 15.0
+              max: 180.0
+              step: 5.0
+              unit_of_measurement: min
+        manual_hold_helper:
+          name: Timer Helper (input_datetime)
+          description: "Required for 'Keep until...'. Must have Date & Time enabled!"
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: input_datetime
+        manual_detection_mode:
+          name: Detection Sensitivity
+          description: "'Strict' is recommended to avoid self-locking. Use 'Lenient' only if physical knob adjustments are ignored."
+          default: strict
+          selector:
+            select:
+              options:
+              - label: Strict (App / Dashboard only)
+                value: strict
+              - label: Lenient (Physical / Hardware changes)
+                value: lenient
+
+    section_learn_offset:
+      name: Smart Learning
+      icon: mdi:account-heart
+      collapsed: true
+      input:
+        learn_enable:
+          name: Enable Learning
+          description: Requires a Helper entity!
+          default: false
+          selector:
+            boolean: {}
+        learn_step_k:
+          name: Learning Step Size
+          default: 0.5
+          selector:
+            number:
+              min: 0.1
+              max: 1.0
+              step: 0.1
+              unit_of_measurement: "°C"
+        learn_max_k:
+          name: Max Learned Offset
+          default: 1.0
+          selector:
+            number:
+              min: 0.5
+              max: 3.0
+              step: 0.1
+              unit_of_measurement: "°C"
+        learn_helper:
+          name: Offset Helper (input_number)
+          description: Must be created manually.
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: input_number
+
+# ------------------------------------------------------------------------------
+# AUTOMATION CONFIGURATION
+# ------------------------------------------------------------------------------
+mode: restart
+max_exceeded: silent
+
+trigger_variables:
+  t_window: !input window_sensor
+  t_occ: !input occupancy_sensor
+  t_pre: !input pre_heat_sensor
+  t_optstop: !input optimal_stop_sensor
+  t_sleep: !input sleep_sensor
+
+triggers:
+  - id: ha_start
+    alias: HA start
+    trigger: homeassistant
+    event: start
+  - id: periodic_enforce
+    alias: Enforcement interval
+    trigger: time_pattern
+    minutes: /15
+    seconds: 23
+  - id: manual_change
+    alias: Manual setpoint change (user)
+    trigger: state
+    entity_id: !input climate_entity
+    attribute: temperature
+    for:
+      seconds: 1
+  - id: manual_change_settled
+    alias: Manual setpoint change settled (debounced)
+    trigger: state
+    entity_id: !input climate_entity
+    attribute: temperature
+    for:
+      seconds: 3
+
+  # SAFE OPTIONAL TRIGGERS (Instant Reaction)
+  - id: window_open
+    trigger: template
+    value_template: "{{ t_window not in [none, [], ''] and is_state(t_window, 'on') }}"
+    for:
+      seconds: 2
+  - id: window_close
+    trigger: template
+    value_template: "{{ t_window not in [none, [], ''] and is_state(t_window, 'off') }}"
+    for:
+      seconds: 2
+  - id: occ_on
+    trigger: template
+    value_template: "{{ t_occ not in [none, [], ''] and is_state(t_occ, 'on') }}"
+    for:
+      seconds: 2
+  - id: occ_off
+    trigger: template
+    value_template: "{{ t_occ not in [none, [], ''] and is_state(t_occ, 'off') }}"
+    for:
+      minutes: !input occupancy_delay_off_min
+  - id: pre_on
+    trigger: template
+    value_template: "{{ t_pre not in [none, [], ''] and is_state(t_pre, 'on') }}"
+    for:
+      seconds: 2
+  - id: pre_off
+    trigger: template
+    value_template: "{{ t_pre not in [none, [], ''] and is_state(t_pre, 'off') }}"
+    for:
+      seconds: 2
+  - id: opt_stop_on
+    trigger: template
+    value_template: "{{ t_optstop not in [none, [], ''] and is_state(t_optstop, 'on') }}"
+    for:
+      seconds: 2
+  - id: opt_stop_off
+    trigger: template
+    value_template: "{{ t_optstop not in [none, [], ''] and is_state(t_optstop, 'off') }}"
+    for:
+      seconds: 2
+  - id: sleep_on
+    trigger: template
+    value_template: "{{ t_sleep not in [none, [], ''] and is_state(t_sleep, 'on') }}"
+    for:
+      seconds: 2
+  - id: sleep_off
+    trigger: template
+    value_template: "{{ t_sleep not in [none, [], ''] and is_state(t_sleep, 'off') }}"
+    for:
+      seconds: 2
+
+variables:
+  # --- INPUT MAPPING ---
+  v_climate: !input climate_entity
+  v_room_type: !input room_type
+  v_occ_id: !input occupancy_sensor
+  v_pre_heat_id: !input pre_heat_sensor
+  v_opt_stop_id: !input optimal_stop_sensor
+  v_sleep_id: !input sleep_sensor
+  v_humidity_id: !input humidity_sensor
+  v_op_temp_id: !input operative_temp_sensor
+  v_window_sensor: !input window_sensor
+  v_window_preset_in: !input window_open_preset
+  v_min_limit: !input minimum_limit_temp
+  
+  # --- SMART TRM LOGIC ---
+  v_trm_input: !input trm_sensor
+  v_trm_missing: "{{ v_trm_input in [none, [], ''] }}"
+  v_allow_weather_adapt: !input allow_weather_adaptive
+  
+  # Safe check
+  v_is_weather: "{{ (v_trm_input is string) and v_trm_input.startswith('weather.') }}"
+  
+  v_trm_val: >
+    {% if v_trm_missing %}
+      none
+    {% elif v_is_weather %}
+      {{ state_attr(v_trm_input, 'temperature') | float(none) }}
+    {% else %}
+      {{ states(v_trm_input) | float(none) }}
+    {% endif %}
+  
+  # --- CONFIGURATION ---
+  v_logging: !input enable_logbook
+  v_transition_policy: !input transition_policy
+  v_system_type_in: !input system_type
+  v_summer_trm_in: !input summer_lock_trm
+  v_force_preset_in: !input force_preset_mode
+  v_ramp_enabled_in: !input ramp_enabled
+  v_ramp_up_kph_in: !input ramp_up_kph
+  v_ramp_down_kph_in: !input ramp_down_kph
+  v_eco_shift_k_in: !input eco_shift_k
+  v_opt_stop_shift_k_in: !input optimal_stop_shift_k
+  v_sleep_shift_k_in: !input sleep_shift_k
+  v_sleep_cool_cooler: !input sleep_cooling_cooler
+  v_eco_allow_below_band_in: !input eco_allow_below_band
+  v_safety_min_limit: !input minimum_limit_temp
+  v_mold_rh_limit: !input mold_protection_rh
+  v_min_rh_in: !input minimum_limit_rh
+  v_dry_air_action_in: !input dry_air_action
+  v_dry_air_shift_k_in: !input dry_air_setpoint_shift_k
+  v_overshoot_enabled: !input overshoot_enabled
+  v_overshoot_threshold_k: !input overshoot_threshold_k
+  v_mh_mode_in: !input manual_hold_mode
+  v_mh_minutes_in: !input manual_hold_minutes
+  v_mh_helper_in: !input manual_hold_helper
+  v_manual_detect_mode_in: !input manual_detection_mode
+  v_learn_enable_in: !input learn_enable
+  v_learn_step_k_in: !input learn_step_k
+  v_learn_max_k_in: !input learn_max_k
+  v_learn_helper_in: !input learn_helper
+  v_enforce: 15
+
+conditions:
+  - condition: template
+    value_template: "{{ states(v_climate) not in ['unavailable', 'unknown'] }}"
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: ["manual_change", "manual_change_settled"]
+      - condition: trigger
+        id: ["periodic_enforce", "ha_start", "window_open", "window_close", "occ_on", "occ_off", "pre_on", "pre_off", "opt_stop_on", "opt_stop_off", "sleep_on", "sleep_off"]
+
+actions:
+  # 1. METRIC SYSTEM GUARD (Active check with feedback)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ state_attr(v_climate, 'temperature_unit') == '°F' }}"
+        sequence:
+          - action: logbook.log
+            data:
+              name: EN 16798-1 Ctrl
+              message: "CRITICAL: Device uses Fahrenheit. This blueprint only supports Celsius!"
+              entity_id: !input climate_entity
+          - stop: "Unsupported unit system (Fahrenheit detected)."
+
+  # 2. PERFORMANCE: Echo & Context Detection
+  - alias: "Performance: Detect Trigger Origin"
+    variables:
+      is_manual_trigger: "{{ (trigger.id in ['manual_change', 'manual_change_settled']) | bool }}"
+      is_user_context: >
+        {% if trigger.to_state is defined %}
+          {% set uid = trigger.to_state.context.user_id %}
+          {% set pid = trigger.to_state.context.parent_id %}
+          {% if v_manual_detect_mode_in == 'lenient' %}
+            {{ ((uid is not none) or (pid is none)) | bool }}
+          {% else %}
+            {{ (uid is not none) | bool }}
+          {% endif %}
+        {% else %}
+          {{ false }}
+        {% endif %}
+      manual_origin: "{{ is_user_context | bool }}"
+
+  - choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ (is_manual_trigger | bool) and not (is_user_context | bool) }}"
+      sequence:
+        - stop: "Performance: Echo detected."
+
+  # 3. SAFETY: Window Open (Instant Priority)
+  - alias: "Safety: Window Open Check"
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ v_window_sensor not in [none, [], ''] and is_state(v_window_sensor, 'on') }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {% set pm = state_attr(v_climate, 'preset_modes') or [] %}
+                      {{ v_window_preset_in is defined and v_window_preset_in != 'none' and v_window_preset_in in pm }}
+                  # Anti-Spam: Only send if not already set
+                  - condition: template
+                    value_template: "{{ state_attr(v_climate, 'preset_mode') != v_window_preset_in }}"
+                sequence:
+                  - action: climate.set_preset_mode
+                    target:
+                      entity_id: !input climate_entity
+                    data:
+                      preset_mode: '{{ v_window_preset_in }}'
+                  - if: 
+                      - condition: template
+                        value_template: "{{ v_logging | bool }}"
+                    then:
+                      - action: logbook.log
+                        data:
+                          name: EN 16798-1 Ctrl
+                          message: "Window Open: Set Preset '{{ v_window_preset_in }}'."
+                          entity_id: !input climate_entity
+            default:
+              # Check if 'off' is supported before sending
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: "{{ 'off' in (state_attr(v_climate, 'hvac_modes') or []) }}"
+                      # Anti-Spam: Only send if not already off
+                      - condition: template
+                        value_template: "{{ states(v_climate) != 'off' }}"
+                    sequence:
+                      - action: climate.set_hvac_mode
+                        target:
+                          entity_id: !input climate_entity
+                        data:
+                          hvac_mode: "off"
+                      - if: 
+                          - condition: template
+                            value_template: "{{ v_logging | bool }}"
+                        then:
+                          - action: logbook.log
+                            data:
+                              name: EN 16798-1 Ctrl
+                              message: "Window Open: HVAC set to OFF."
+                              entity_id: !input climate_entity
+                # Fallback: Force Frost Protection if 'Off' not supported
+                default:
+                  - if:
+                      # Anti-Spam: Use float tolerance for comparison (Float-Safe)
+                      - condition: template
+                        value_template: >
+                          {{ (state_attr(v_climate, 'temperature') | float(0) - (v_min_limit | float(16.0))) | abs > 0.1 }}
+                    then:
+                      - action: climate.set_temperature
+                        target:
+                          entity_id: !input climate_entity
+                        data:
+                          temperature: '{{ v_min_limit | float(16.0) }}'
+                      - if: 
+                          - condition: template
+                            value_template: "{{ v_logging | bool }}"
+                        then:
+                          - action: logbook.log
+                            data:
+                              name: EN 16798-1 Ctrl
+                              message: "Window Open: 'Off' not supported. Forced minimum temp."
+                              entity_id: !input climate_entity
+          - stop: "Window Open - Action Taken."
+          
+      # 4. LOGIC: Window Close (Restore/Reset Preset)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'window_close' }}"
+        sequence:
+          - choose:
+              # Only reset if we are still in the specific window preset
+              - conditions:
+                  - condition: template
+                    value_template: >
+                      {% set pm = state_attr(v_climate, 'preset_modes') or [] %}
+                      {% set cur = state_attr(v_climate, 'preset_mode') %}
+                      {% set preferred = ['none','home','comfort','schedule','auto'] %}
+                      {# Find the first available safe preset #}
+                      {% set desired = (preferred | select('in', pm) | list | first) %}
+                      
+                      {{ v_window_preset_in != 'none' 
+                         and cur == v_window_preset_in 
+                         and desired is string 
+                         and desired != cur }}
+                sequence:
+                  - action: climate.set_preset_mode
+                    target:
+                      entity_id: !input climate_entity
+                    data:
+                      preset_mode: >
+                        {% set pm = state_attr(v_climate, 'preset_modes') or [] %}
+                        {% set preferred = ['none','home','comfort','schedule','auto'] %}
+                        {{ (preferred | select('in', pm) | list | first) }}
+                  - if: 
+                      - condition: template
+                        value_template: "{{ v_logging | bool }}"
+                    then:
+                      - action: logbook.log
+                        data:
+                          name: EN 16798-1 Ctrl
+                          message: "Window Close: Preset reset."
+                          entity_id: !input climate_entity
+
+  # 5. CORE LOGIC: Single Point of Truth Calculation
+  - alias: "Core Logic: Calculate All Variables"
+    variables:
+      # --- PROFILES ---
+      v_profile_base:
+        living_room: 21.5
+        kids_room: 22.0
+        bedroom: 18.5
+        kitchen: 20.5
+        bathroom: 22.5
+        wc_office: 21.0
+        hallway: 17.5
+        workshop: 17.0
+        storage: 16.0
+      v_profile_cat:
+        living_room: II
+        kids_room: II
+        bedroom: III
+        kitchen: II
+        bathroom: I
+        wc_office: II
+        hallway: III
+        workshop: III
+        storage: III
+      v_base_pref: '{{ v_profile_base[v_room_type] }}'
+      v_cat: '{{ v_profile_cat[v_room_type] }}'
+      
+      # --- PRESENCE ---
+      v_pre_heat: >
+        {% if v_pre_heat_id in [none, [], ''] %} {{ false }}
+        {% else %} {{ is_state(v_pre_heat_id, 'on') }} {% endif %}
+      
+      v_opt_stop: >
+        {% if v_opt_stop_id in [none, [], ''] %} {{ false }}
+        {% else %} {{ is_state(v_opt_stop_id, 'on') }} {% endif %}
+      
+      v_present: >
+        {% if v_occ_id in [none, [], ''] %} {{ true }}
+        {% else %} {{ is_state(v_occ_id,'on') or (v_pre_heat | bool) }} {% endif %}
+      
+      v_sleep: >
+        {% if v_sleep_id in [none, [], ''] %} {{ false }}
+        {% else %} {{ is_state(v_sleep_id,'on') and not (v_pre_heat | bool) }} {% endif %}
+
+      # --- DEVICE ATTRIBUTES ---
+      v_min_temp_attr: '{{ state_attr(v_climate, "min_temp") | float(none) }}'
+      v_max_temp_attr: '{{ state_attr(v_climate, "max_temp") | float(none) }}'
+      v_step: '{{ state_attr(v_climate, "target_temp_step") | float(0.5) }}'
+      v_modes: '{{ state_attr(v_climate, "hvac_modes") | default([], true) }}'
+      
+      # --- ADAPTIVE LOGIC ---
+      v_adaptive_applicable: >
+        {{ ((v_trm_val is number) 
+           and (v_trm_val >= 10) 
+           and (v_trm_val <= 30)
+           and ((v_allow_weather_adapt | bool) or not (v_is_weather | bool))
+           ) | bool }}
+      
+      v_season_raw: >
+        {% if v_trm_val is not number %}unknown
+        {% elif v_trm_val < 10 %}heating
+        {% elif v_trm_val > 15 %}cooling
+        {% else %}transition{% endif %}
+      
+      v_sys_hint: >
+        {% set m = v_modes if v_modes is iterable else [] %}
+        {% set has_heat = 'heat' in m %}
+        {% set has_cool = 'cool' in m or 'heat_cool' in m or 'auto' in m %}
+        {% if (not has_heat) and has_cool %}cooling
+        {% elif has_heat and (not has_cool) %}heating
+        {% elif has_heat and has_cool %}heat_cool
+        {% else %}heating{% endif %}
+
+      v_season_eff: >
+        {% if v_trm_missing or (v_trm_val is not number) %}
+           {% set cm = states(v_climate) %}
+           {% set act = state_attr(v_climate, 'hvac_action') %}
+           {% if cm == 'cool' or act == 'cooling' %}cooling
+           {% elif cm == 'heat' or act == 'heating' %}heating
+           {% elif v_system_type_in == 'cooling' %}cooling
+           {% else %}heating{% endif %}
+        {% else %}
+           {% set st = v_system_type_in | default('auto_detect') %}
+           {% if st == 'cooling' %}cooling
+           {% elif st == 'heating' %}heating
+           {% elif st == 'heat_cool' %}
+             {{ 'cooling' if v_season_raw == 'cooling' else ('heating' if v_season_raw == 'heating' else 'transition') }}
+           {% else %}
+             {% if v_season_raw in ['heating','cooling','transition'] %}{{ v_season_raw }}
+             {% else %}{{ 'cooling' if v_sys_hint == 'cooling' else 'heating' }}{% endif %}
+           {% endif %}
+        {% endif %}
+      
+      is_summer_lockout: >
+        {% set trm = v_trm_val | float(0) %}
+        {% set limit = v_summer_trm_in | float(19.0) %}
+        {{ (v_trm_val is number) and (trm > limit) }}
+      
+      # --- RANGES ---
+      v_ranges_heat_lower: { I: 21.0, II: 20.0, III: 19.0 }
+      v_ranges_heat_upper: { I: 23.0, II: 24.0, III: 25.0 }
+      v_ranges_cool_lower: { I: 23.0, II: 23.0, III: 22.0 }
+      v_ranges_cool_upper: { I: 25.0, II: 26.0, III: 27.0 }
+      
+      v_adapt_neutral: >
+        {% if (v_adaptive_applicable | bool) %}{{ (0.33 * (v_trm_val | float) + 18.8) | round(1) }}{% else %}none{% endif %}
+      v_adapt_upper: >
+        {% if (v_adaptive_applicable | bool) %}
+          {% if v_cat == 'I' %}{{ (v_adapt_neutral | float + 2.0) | round(1) }}
+          {% elif v_cat == 'III' %}{{ (v_adapt_neutral | float + 4.0) | round(1) }}
+          {% else %}{{ (v_adapt_neutral | float + 3.0) | round(1) }}{% endif %}
+        {% else %}none{% endif %}
+      v_adapt_lower: >
+        {% if (v_adaptive_applicable | bool) %}
+          {% if v_cat == 'I' %}{{ (v_adapt_neutral | float - 2.0) }}
+          {% elif v_cat == 'III' %}{{ (v_adapt_neutral | float - 4.0) }}
+          {% else %}{{ (v_adapt_neutral | float - 3.0) }}{% endif %}
+        {% else %}none{% endif %}
+        
+      v_band_lower: >
+        {% if (v_adaptive_applicable | bool) %}{{ v_adapt_lower }}
+        {% else %}
+          {% if v_season_eff == 'cooling' %}{{ v_ranges_cool_lower[v_cat] }}
+          {% elif v_season_eff == 'transition' %}{{ v_ranges_heat_lower[v_cat] }}
+          {% else %}{{ v_ranges_heat_lower[v_cat] }}{% endif %}
+        {% endif %}
+      v_band_upper: >
+        {% if (v_adaptive_applicable | bool) %}{{ v_adapt_upper }}
+        {% else %}
+          {% if v_season_eff == 'cooling' %}{{ v_ranges_cool_upper[v_cat] }}
+          {% elif v_season_eff == 'transition' %}{{ v_ranges_cool_upper[v_cat] }}
+          {% else %}{{ v_ranges_heat_upper[v_cat] }}{% endif %}
+        {% endif %}
+      
+      # --- GRACE PERIOD INFO ---
+      # Use last_updated to catch setpoint changes
+      v_last_update_age: >
+        {% set lu = states[v_climate].last_updated %}
+        {% if lu %}{{ (as_timestamp(now()) - as_timestamp(lu)) | int(0) }}{% else %}9999{% endif %}
+
+      # RESTORED: Lenient logic to support physical knobs
+      v_context_is_user: >
+        {% set c = states[v_climate].context %}
+        {% set uid = c.user_id %}
+        {% set pid = c.parent_id %}
+        {% if v_manual_detect_mode_in == 'lenient' %}
+          {# Lenient: UserID exists OR ParentID missing (Phys/Hardware) #}
+          {{ ((uid is not none) or (pid is none)) | bool }}
+        {% else %}
+          {# Strict: UserID required #}
+          {{ (uid is not none) | bool }}
+        {% endif %}
+
+      # --- MANUAL HOLD INFO (Robust Timestamp) ---
+      mh_mode: '{{ v_mh_mode_in | default("off") }}'
+      mh_minutes: '{{ v_mh_minutes_in | int(75) }}'
+      mh_helper: '{{ v_mh_helper_in if v_mh_helper_in not in [none, [], ""] else none }}'
+      
+      mh_active: >-
+        {% if mh_mode == 'datetime' and (mh_helper is not none) %}
+          {% set ts = state_attr(mh_helper, 'timestamp') %}
+          {% if ts is number %}
+            {{ ts > as_timestamp(now()) }}
+          {% else %}
+            {{ as_timestamp(states(mh_helper), 0) > as_timestamp(now()) }}
+          {% endif %}
+        {% else %}
+          {{ false }}
+        {% endif %}
+
+      # --- TARGET CALCULATION ---
+      step: '{{ v_step | float }}'
+      dev_lo_eff: >
+        {% set a = v_min_temp_attr %}
+        {% set b = v_band_lower | float %}
+        {{ (a if a is number else b) }}
+      dev_hi_eff: >
+        {% set a = v_max_temp_attr %}
+        {% set b = v_band_upper | float %}
+        {{ (a if a is number else b) }}
+        
+      season_ctrl: >
+        {% if v_season_eff in ['heating','cooling'] %} {{ v_season_eff }}
+        {% elif v_transition_policy == 'cooling' %} cooling
+        {% elif v_transition_policy == 'neutral' %} 
+          {{ v_season_eff }}
+        {% elif v_transition_policy == 'auto' %}
+          {% if v_adapt_neutral is number and (v_adapt_neutral | float) >= 23.0 %}cooling{% else %}heating{% endif %}
+        {% else %} heating {% endif %}
+      
+      target_hvac_mode: >
+        {% set cur_mode = states(v_climate) %}
+        {% if (v_trm_missing or (v_trm_val is not number)) and (v_system_type_in == 'auto_detect') %}
+          {# Quick Start: Keep current mode #}
+          {{ cur_mode }}
+        {% else %}
+          {% if season_ctrl == 'cooling' %} cool
+          {% elif (is_summer_lockout | bool) %} off
+          {% elif v_system_type_in == 'heat_cool' %} heat_cool
+          {% else %} heat
+          {% endif %}
+        {% endif %}
+        
+      target_comfort_base: >
+        {% set lo = v_band_lower | float %}{% set hi = v_band_upper | float %}
+        {% set base = v_profile_base[v_room_type] | float %}
+        {{ [hi, [base, lo] | max] | min | round(1) }}
+      
+      # Learning
+      learn_enabled: '{{ (v_learn_enable_in | default(false)) | bool }}'
+      learn_helper: '{{ v_learn_helper_in if v_learn_helper_in not in [none, [], ""] else none }}'
+      learn_max_k: '{{ v_learn_max_k_in | float(1.0) }}'
+      learn_offset_raw: >
+        {% if (learn_enabled | bool) and (learn_helper is not none) %}
+          {% set v = states(learn_helper) | float(none) %}
+          {{ v if v is number else 0.0 }}
+        {% else %}0.0{% endif %}
+      learn_offset: >
+        {% set mx = learn_max_k | float(1.0) %}
+        {% set base = target_comfort_base | float %}
+        {% set o_cap_lo = (v_band_lower | float) - base %}
+        {% set o_cap_hi = (v_band_upper | float) - base %}
+        {% set lo1 = [ -mx, o_cap_lo ] | max %}
+        {% set hi1 = [  mx, o_cap_hi ] | min %}
+        {% set raw = learn_offset_raw | float(0) %}
+        {{ [ hi1, [ raw, lo1 ] | max ] | min | round(2) }}
+        
+      target_comfort_eff: >
+        {% set base = target_comfort_base | float %}
+        {% set o = learn_offset | float(0) %}
+        {% set lo = v_band_lower | float %}
+        {% set hi = v_band_upper | float %}
+        {{ [ hi, [ base + o, lo ] | max ] | min | round(1) }}
+      
+      eco_shift_k: '{{ v_eco_shift_k_in | float(2.0) }}'
+      opt_stop_shift_k: '{{ v_opt_stop_shift_k_in | float(1.0) }}'
+      sleep_shift_k: '{{ v_sleep_shift_k_in | float(2.0) }}'
+      sleep_cool_cooler: '{{ v_sleep_cool_cooler | bool }}'
+      eco_allow_below_band: '{{ (v_eco_allow_below_band_in | default(true)) | bool }}'
+      
+      target_raw_pre_clamp: >
+        {% set base = target_comfort_eff | float %}
+        
+        {% if not (v_present | bool) %}
+          {# --- ECO MODE (Occupancy OFF) --- #}
+          {# Highest Energy Saving priority #}
+          {% if season_ctrl == 'cooling' %}{{ base + eco_shift_k }}
+          {% else %}{{ base - eco_shift_k }}{% endif %}
+          
+        {% elif (v_pre_heat | bool) %}
+           {# --- PRE-HEAT (Forced Comfort) --- #}
+           {# Highest Comfort priority #}
+           {{ base }}
+           
+        {% elif (v_sleep | bool) %}
+          {# --- SLEEP MODE --- #}
+          {# Stronger saving than OptStop #}
+          {% if season_ctrl == 'cooling' %}
+            {% if (sleep_cool_cooler | bool) %}{{ base - sleep_shift_k }}
+            {% else %}{{ base + sleep_shift_k }}{% endif %}
+          {% else %}
+            {{ base - sleep_shift_k }}
+          {% endif %}
+          
+        {% elif (v_opt_stop | bool) %}
+          {# --- OPTIMAL STOP (Eco-lite) --- #}
+          {# Only active if Present + Not Sleeping + Not PreHeating #}
+          {% if season_ctrl == 'cooling' %}{{ base + opt_stop_shift_k }}
+          {% else %}{{ base - opt_stop_shift_k }}{% endif %}
+          
+        {% else %}
+          {# --- STANDARD COMFORT --- #}
+          {{ base }}
+        {% endif %}
+
+      active_mode_label: >
+        {% if not (v_present | bool) %}ECO
+        {% elif (v_pre_heat | bool) %}PRE-HEAT
+        {% elif (v_sleep | bool) %}SLEEP
+        {% elif (v_opt_stop | bool) %}OPTIMAL-STOP
+        {% else %}COMFORT{% endif %}
+      
+      target_band_policy: >
+        {% set t = target_raw_pre_clamp | float %}
+        {% if (eco_allow_below_band | bool) %}
+          {{ t }}
+        {% else %}
+          {{ [ v_band_upper | float, [ t, v_band_lower | float ] | max ] | min }}
+        {% endif %}
+
+      rad_offset: >
+        {% set s = v_op_temp_id %}
+        {% if s not in [none, [], ''] and state_attr(s, 'unit_of_measurement') == '°C' %}
+           {% set air = state_attr(v_climate, 'current_temperature') | float(none) %}
+           {% set op = states(s) | float(none) %}
+           {% if air is number and op is number %}
+              {% set diff = air - op %}
+              {{ [[diff, -3.0]|max, 3.0]|min }}
+           {% else %}0.0{% endif %}
+        {% else %}0.0{% endif %}
+        
+      target_physically_corrected: '{{ (target_band_policy | float) + (rad_offset | float) }}'
+
+      limit_frost: '{{ v_safety_min_limit | float(16.0) }}'
+      limit_dewpoint: >
+        {% if season_ctrl == 'cooling' and v_humidity_id not in [none, [], ''] %}
+           {% set rh = states(v_humidity_id) | float(none) %}
+           {% if rh is number %}
+             {% set current_t = state_attr(v_climate, 'current_temperature') | float(20.0) %}
+             {% set dp = current_t - ((100 - rh) / 5.0) %}
+             {{ dp + 2.0 }} 
+           {% else %}0.0{% endif %}
+        {% else %}0.0{% endif %}
+      limit_mold: >
+        {% if season_ctrl != 'cooling' and v_humidity_id not in [none, [], ''] %}
+           {% set rh = states(v_humidity_id) | float(0) %}
+           {% set rh_limit = v_mold_rh_limit | float(65.0) %}
+           {% if rh > rh_limit %}18.0{% else %}0.0{% endif %}
+        {% else %}0.0{% endif %}
+
+      target_with_floor: >
+        {% set t = target_physically_corrected | float %}
+        {% if season_ctrl != 'cooling' %}
+          {% set floor = [limit_frost | float, limit_mold | float] | max %}
+          {{ [t, floor] | max }}
+        {% else %}{{ t }}{% endif %}
+
+      target_safe: >
+        {% set t = target_with_floor | float %}
+        {% set dp_limit = limit_dewpoint | float %}
+        {% if season_ctrl == 'cooling' and dp_limit > 0 %}
+           {{ [t, dp_limit] | max }}
+        {% else %}{{ t }}{% endif %}
+      
+      actual_temp: '{{ state_attr(v_climate, "current_temperature") }}'
+      current: >
+        {% if trigger is defined and trigger.from_state is defined and trigger.from_state.attributes.temperature is number %}
+          {{ trigger.from_state.attributes.temperature | float }}
+        {% else %}
+          {{ state_attr(v_climate, 'temperature') if state_attr(v_climate, 'temperature') is number else none }}
+        {% endif %}
+        
+      target_clamped: >
+        {% set c = [ dev_hi_eff | float, [ target_safe | float, dev_lo_eff | float ] | max ] | min %}
+        {% set s = step | float %}
+        {{ ((c / s) | round(0) * s) | round(1) }}
+        
+      ramp_enabled_eff: '{{ (v_ramp_enabled_in | default(false)) | bool }}'
+      ramp_up_kph: '{{ v_ramp_up_kph_in | float(2.0) }}'
+      ramp_down_kph: '{{ v_ramp_down_kph_in | float(3.0) }}'
+      ramp_allowed_up: '{{ (ramp_up_kph * (v_enforce | float / 60.0)) }}'
+      ramp_allowed_dn: '{{ (ramp_down_kph * (v_enforce | float / 60.0)) }}'
+      
+      ramp_target: >
+        {% if not (ramp_enabled_eff | bool) or (current is not number) %}
+          {{ target_clamped }}
+        {% else %}
+          {% set st = step | float %}
+          {% set last_sp = current | float %}
+          {% set tgt = target_clamped | float %}
+          {% set room_t = actual_temp | float(last_sp) %} 
+          {% if tgt > last_sp %}
+             {% set base = [last_sp, room_t] | max %}
+             {% set base = [base, tgt] | min %}
+          {% else %}
+             {% set base = last_sp %}
+          {% endif %}
+          {% if tgt > base %}
+            {% set delta = [tgt - base, ramp_allowed_up | float] | min %}
+            {% set n = ((delta + 0.0001) / st) | int %}
+            {% if n >= 1 %}{{ (base + n * st) | round(1) }}{% else %}{{ base }}{% endif %}
+          {% elif tgt < base %}
+            {% set delta = [base - tgt, ramp_allowed_dn | float] | min %}
+            {% set n = ((delta + 0.0001) / st) | int %}
+            {% if n >= 1 %}{{ (base - n * st) | round(1) }}{% else %}{{ base }}{% endif %}
+          {% else %}{{ tgt }}{% endif %}
+        {% endif %}
+        
+      # SUMMER FALLBACK: If off not supported, force min temp
+      target_to_send: >
+        {% if (is_summer_lockout | bool) and 'off' not in (v_modes or []) %}
+           {{ limit_frost | float }}
+        {% else %}
+           {% set t = ramp_target | float %}
+           {# Sleep Fix included #}
+           {% if (v_present | bool) and not (v_sleep | bool) and season_ctrl == 'heating' %}
+              {{ [t, v_band_lower | float] | max }}
+           {% elif (v_present | bool) and not (v_sleep | bool) and season_ctrl == 'cooling' %}
+              {{ [t, v_band_upper | float] | min }}
+           {% else %}{{ t }}{% endif %}
+        {% endif %}
+        
+      send_temp: >
+        {% set lo = dev_lo_eff | float %}{% set hi = dev_hi_eff | float %}
+        {{ [ hi, [ target_to_send | float, lo ] | max ] | min | round(1) }}
+        
+      was_clamped: >
+        {% set t = target_to_send | float %}{% set s = send_temp | float %}
+        {{ ((t - s) | abs) > 0.001 }}
+        
+      looks_like_own_write: >
+        {% if trigger is not defined or trigger.to_state is not defined %} 
+          false 
+        {% else %}
+          {% set ut = trigger.to_state.attributes.temperature if trigger.to_state.attributes is defined else none %}
+          {% if ut is number %}
+            {% set thr = (v_step | float(0.5)) * 1.1 %}
+            {{ ((ut | float) - (send_temp | float)) | abs <= thr }}
+          {% else %}false{% endif %}
+        {% endif %}
+
+      limit_dry_air: >
+        {% set min_rh = v_min_rh_in | float(0) %}
+        {% if min_rh > 0
+           and season_ctrl != 'cooling'
+           and v_humidity_id not in [none, [], ''] %}
+          {% set rh_state = states(v_humidity_id) %}
+          {% if rh_state not in ['unavailable', 'unknown'] %}
+            {% set rh = rh_state | float(none) %}
+            {% if rh is number and rh < min_rh %}true{% else %}false{% endif %}
+          {% else %}false{% endif %}
+        {% else %}false{% endif %}
+
+      dry_air_reduced_setpoint: >
+        {% if limit_dry_air | bool %}
+          {% set reduced = (send_temp | float) - (v_dry_air_shift_k_in | float(2.0)) %}
+          {{ [dev_hi_eff | float, [reduced, dev_lo_eff | float] | max] | min | round(1) }}
+        {% else %}
+          {{ send_temp }}
+        {% endif %}
+
+  - alias: "Manual Hold: Activation"
+    choose:
+    - conditions:
+      - condition: template
+        value_template: >
+          {{ trigger.id == 'manual_change' and (manual_origin | bool) and not (looks_like_own_write | bool) and (v_mh_mode_in != 'off') }}
+      sequence:
+      - choose:
+        - conditions:
+          - condition: template
+            value_template: '{{ v_mh_mode_in == "datetime" and (v_mh_helper_in not in [none, [], ""]) }}'
+          sequence:
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: '{{ v_mh_helper_in }}'
+            data:
+              # Native timestamp for modern HA versions (performance)
+              timestamp: '{{ (now() + timedelta(minutes=(v_mh_minutes_in | int(75)))).timestamp() }}'
+          - stop: "Manual Override Armed."
+
+  - alias: "Grace Period: Instant check"
+    choose:
+    - conditions:
+      - condition: template
+        value_template: "{{ trigger.id == 'manual_change' and not (looks_like_own_write | bool) }}"
+      sequence:
+      - if: 
+          - condition: template
+            value_template: "{{ v_logging | bool }}"
+        then:
+          - action: logbook.log
+            data:
+              name: EN 16798-1 Ctrl
+              message: 'Manual change → Grace Period active.'
+              entity_id: !input climate_entity
+      - stop: "Grace Period active."
+
+  - alias: "Learning: Update Offset"
+    choose:
+    - conditions:
+      - condition: template
+        value_template: >
+          {{ trigger.id == 'manual_change_settled' 
+             and (manual_origin | bool) 
+             and not (looks_like_own_write | bool) 
+             and (learn_enabled | bool)
+             and (learn_helper is not none) }}
+      sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: '{{ v_learn_helper_in }}'
+        data:
+          value: >
+            {% set ut = trigger.to_state.attributes.temperature %}
+            {% set uf = trigger.from_state.attributes.temperature if trigger.from_state is defined else none %}
+            {% set tol = (v_step | float(0.5)) * 0.2 %}
+            {% if ut is number and uf is number %}
+              {% set d = (ut | float) - (uf | float) %}
+              {% set s = 1 if d > tol else (-1 if d < -tol else 0) %}
+            {% elif ut is number %}
+              {% set base = ([ v_band_upper | float, [ v_profile_base[v_room_type] | float, v_band_lower | float ] | max ] | min ) | round(1) %}
+              {% set cur = states(learn_helper) | float(0) %}
+              {% set eff = ([ v_band_upper | float, [ base + cur, v_band_lower | float ] | max ] | min ) | round(1) %}
+              {% set s = 1 if (ut | float) > (eff + tol) else (-1 if (ut | float) < (eff - tol) else 0) %}
+            {% else %}{% set s = 0 %}{% endif %}
+            
+            {% set stepk = v_learn_step_k_in | float(0.5) %}
+            {% set mx = v_learn_max_k_in | float(1.0) %}
+            {% set base = ([ v_band_upper | float, [ v_profile_base[v_room_type] | float, v_band_lower | float ] | max ] | min ) | round(1) %}
+            {% set cur = states(learn_helper) | float(0) %}
+            {% set o_cap_lo = (v_band_lower | float) - base %}
+            {% set o_cap_hi = (v_band_upper | float) - base %}
+            {% set lo1 = [ -mx, o_cap_lo ] | max %}
+            {% set hi1 = [  mx, o_cap_hi ] | min %}
+            {% set cand = cur + s * stepk %}
+            {% set newv = [ hi1, [ cand, lo1 ] | max ] | min %}
+            {{ newv | round(2) }}
+
+  - alias: "Grace Period: Settled check"
+    choose:
+    - conditions:
+      - condition: template
+        value_template: >
+          {{ trigger.id == 'manual_change_settled' and not (looks_like_own_write | bool)
+             and ( (v_mh_mode_in == 'off') or (v_mh_mode_in == 'datetime' and mh_helper is none) )
+          }}
+      sequence:
+      - stop: "Grace Period (Settled)."
+
+  # --- APPLY SETTINGS ---
+  - alias: "Apply: Settings Sequence"
+    sequence:
+      # A) Grace Period Check (Restored Lenient Logic)
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ trigger.id == 'periodic_enforce' 
+                     and (v_context_is_user | bool)
+                     and (v_last_update_age | int(9999)) < 2700 
+                     and not (mh_active | default(false) | bool)
+                     and v_mh_mode_in == 'off' }} 
+            sequence:
+              - stop: "Grace Period active (Time check)."
+      
+      # Stop early if Manual Hold is active (save CPU), BUT allow Window Close to wake device
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ (mh_active | default(false) | bool) and trigger.id != 'window_close' }}"
+            sequence:
+              - stop: "Manual Hold Active."
+
+      # B) Wake Up & Mode Enforcement
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {% set m = state_attr(v_climate, 'hvac_modes') or [] %}
+                  {{ target_hvac_mode in m and states(v_climate) != target_hvac_mode }}
+            sequence:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: !input climate_entity
+                data:
+                  hvac_mode: '{{ target_hvac_mode }}'
+      
+      # C) Force Preset Mode
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: >
+                  {% set pm = state_attr(v_climate, 'preset_modes') or [] %}
+                  {% set current_pre = state_attr(v_climate, 'preset_mode') %}
+                  {% set desired_pre = v_force_preset_in | default('none') %}
+                  {{ desired_pre != 'none' and desired_pre in pm and current_pre != desired_pre }}
+            sequence:
+              - action: climate.set_preset_mode
+                target:
+                  entity_id: !input climate_entity
+                data:
+                  preset_mode: '{{ v_force_preset_in }}'
+      
+      # E) Safety: Overshoot Shutoff
+      - alias: 'Safety: Overshoot Shutoff'
+        choose:
+        - conditions:
+          - condition: template
+            value_template: >
+              {% set actual = state_attr(v_climate, 'current_temperature') | float(none) %}
+              {% set setpoint = send_temp | float %}
+              {% set threshold = v_overshoot_threshold_k | float(1.5) %}
+              {{ (v_overshoot_enabled | bool)
+                 and actual is not none
+                 and season_ctrl == 'heating'
+                 and not (v_pre_heat | bool)
+                 and (actual - setpoint) > threshold
+                 and 'off' in (state_attr(v_climate, 'hvac_modes') or [])
+                 and states(v_climate) != 'off' }}
+          sequence:
+          - if:
+            - condition: template
+              value_template: '{{ v_logging | bool }}'
+            then:
+            - action: logbook.log
+              data:
+                name: EN 16798-1 Ctrl
+                message: >
+                  Overshoot Shutoff: {{ state_attr(v_climate, 'current_temperature') }}°C
+                  is {{ (state_attr(v_climate, 'current_temperature') | float - send_temp | float) | round(1) }}°C
+                  above setpoint {{ send_temp }}°C. HVAC set to OFF.
+                entity_id: !input climate_entity
+          - action: climate.set_hvac_mode
+            target:
+              entity_id: !input climate_entity
+            data:
+              hvac_mode: 'off'
+          - stop: Overshoot shutoff applied.
+
+      # F) Safety: Dry Air Protection
+      - alias: 'Safety: Dry Air Protection'
+        choose:
+        - conditions:
+          - condition: template
+            value_template: '{{ (limit_dry_air | bool) and (v_dry_air_action_in == "off") and season_ctrl != "cooling" }}'
+          sequence:
+          - choose:
+            - conditions:
+              - condition: template
+                value_template: "{{ 'off' in (state_attr(v_climate, 'hvac_modes') or []) and states(v_climate) != 'off' }}"
+              sequence:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: !input climate_entity
+                data:
+                  hvac_mode: 'off'
+              - if:
+                - condition: template
+                  value_template: '{{ v_logging | bool }}'
+                then:
+                - action: logbook.log
+                  data:
+                    name: EN 16798-1 Ctrl
+                    message: >
+                      Dry Air Protection: RH {{ states(v_humidity_id) }}% below
+                      {{ v_min_rh_in }}% floor (EN ISO 7730/FGK). Heating OFF.
+                    entity_id: !input climate_entity
+          - stop: Dry Air Protection (Off).
+        - conditions:
+          - condition: template
+            value_template: >
+              {{ (limit_dry_air | bool)
+                 and (v_dry_air_action_in == "reduce")
+                 and season_ctrl != "cooling"
+                 and (
+                   (state_attr(v_climate, 'temperature') is not number)
+                   or
+                   ((dry_air_reduced_setpoint | float - state_attr(v_climate, 'temperature') | float) | abs
+                    >= ([state_attr(v_climate, 'target_temp_step') | float(0.5), 0.2] | max) * 0.999)
+                 ) }}
+          sequence:
+          - if:
+            - condition: template
+              value_template: '{{ v_logging | bool }}'
+            then:
+            - action: logbook.log
+              data:
+                name: EN 16798-1 Ctrl
+                message: >
+                  Dry Air Protection: RH {{ states(v_humidity_id) }}% below
+                  {{ v_min_rh_in }}% floor. Setpoint reduced by {{ v_dry_air_shift_k_in }}°C
+                  to {{ dry_air_reduced_setpoint }}°C.
+                entity_id: !input climate_entity
+          - action: climate.set_temperature
+            target:
+              entity_id: !input climate_entity
+            data:
+              temperature: '{{ dry_air_reduced_setpoint | float | round(1) }}'
+          - stop: Dry Air Protection (Reduce).
+
+      # D) Set Temperature
+      # Protected against overwriting Manual Hold
+      - choose:
+          - conditions:
+            - condition: template
+              value_template: >
+                {{ not (mh_active | default(false) | bool) and (
+                    (state_attr(v_climate, 'temperature') is not number)
+                    or
+                    (
+                      ((send_temp | float) - (state_attr(v_climate, 'temperature') | float)) | abs
+                      >= ([ (state_attr(v_climate, 'target_temp_step') | float(0.5)), 0.2 ] | max) * 0.999
+                    )
+                ) }}
+            sequence:
+              - if: 
+                  - condition: template
+                    value_template: "{{ v_logging | bool }}"
+                then:
+                  - action: logbook.log
+                    data:
+                      name: EN 16798-1 Ctrl
+                      message: "Setting {{ send_temp }}°C ({{ active_mode_label }})."
+                      entity_id: !input climate_entity
+              - action: climate.set_temperature
+                target:
+                  entity_id: !input climate_entity
+                data:
+                  temperature: '{{ send_temp }}'
