@@ -1,6 +1,11 @@
 blueprint:
-  name: EN 16798-1 – Smart Setpoint v5.3.0
-  description: >
+  name: EN 16798-1 – Smart Setpoint v5.4.0
+  description: |
+    Automated setpoint control strictly following EN 16798-1 & ASR A3.5 logic.
+
+    **v5.4.0:**
+    - Adds Occupancy Delay, Dry Air Protection (DIN/EN/FGK-compliant), Overshoot Shutoff options per EN ISO 52120-1.
+    - User-configurable thresholds for comfort and efficiency per latest German and European standards.
     Automated setpoint control strictly following EN 16798-1 & ASR A3.5 logic.
     
      **⚠️ IMPORTANT:**
