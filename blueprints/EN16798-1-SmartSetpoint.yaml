@@ -1,9 +1,14 @@
 blueprint:
-  name: EN 16798-1 – Smart Setpoint v5.3.0
+  name: EN 16798-1 – Smart Setpoint v5.5.0
   description: >
     Automated setpoint control strictly following EN 16798-1 & ASR A3.5 logic.
-    
-     **⚠️ IMPORTANT:**
+
+    **v5.5.0:** Overshoot Latch with hysteresis release + minimum off time.
+    External Inhibit Policy framework (force_eco / block_preheat_only /
+    maintain_only / hvac_off) for electricity-price-aware scheduling or any
+    custom inhibit condition.
+
+    **⚠️ IMPORTANT:**
     - Designed for **Metric Systems (°C)** only.
   domain: automation
   author: Tobias Paul
@@ -414,6 +419,49 @@ blueprint:
               step: 0.5
               unit_of_measurement: "°C"
               mode: slider
+        overshoot_lock_helper:
+          name: Overshoot Lock Helper (input_boolean)
+          description: >
+            Optional. Create an input_boolean helper (e.g.
+            input_boolean.en16798_overshoot_lock) and select it here to enable
+            stateful latch behavior. When set, the HVAC stays off until the room
+            cools back within the release proximity of the setpoint AND the
+            minimum off time has elapsed. Without this helper, shutoff is
+            stateless (legacy behavior).
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain: input_boolean
+        overshoot_release_k:
+          name: Overshoot Hysteresis Release (°C)
+          description: >
+            Temperature must fall back within this proximity of the setpoint
+            before re-enabling heating. Prevents short-cycling.
+            Recommended: 0.3–0.8°C.
+          default: 0.5
+          selector:
+            number:
+              min: 0.1
+              max: 2.0
+              step: 0.1
+              unit_of_measurement: "°C"
+              mode: slider
+        overshoot_min_off_min:
+          name: Overshoot Minimum Off Time (min)
+          description: >
+            Minimum time HVAC stays off after an overshoot shutoff, even if the
+            temperature recovers sooner. Protects the compressor from
+            short-cycling. Set to 0 to disable the time guard.
+          default: 15
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 5
+              unit_of_measurement: min
+              mode: slider
 
     section_ramp:
       name: Ramp Limiting
@@ -528,6 +576,58 @@ blueprint:
               multiple: false
               filter:
                 - domain: input_number
+
+    section_external_inhibit:
+      name: External Inhibit / Price Policy
+      icon: mdi:cash-clock
+      collapsed: true
+      input:
+        external_inhibit_entity:
+          name: External Inhibit Entity
+          description: >
+            When this entity is ON/active, the selected policy is applied.
+            Example: binary_sensor.expensive_now, input_boolean.price_hold,
+            or any schedule helper.
+            Leave empty to disable this feature.
+            Tip: If your price integration (e.g. hass_looop_price_tracker)
+            exposes "minutes until cheap period", create a template
+            binary_sensor that turns ON during expensive windows and use it
+            here.
+          default: null
+          selector:
+            entity:
+              multiple: false
+              filter:
+                - domain:
+                  - binary_sensor
+                  - input_boolean
+                  - schedule
+                  - switch
+        external_inhibit_policy:
+          name: Inhibit Policy
+          description: >
+            What to do when the inhibit entity is ON.
+            'Force Eco' – apply full Eco shift (defer heavy heating/cooling to
+            cheap periods; recommended for price signals).
+            'Block Preheat Only' – allow normal comfort, suppress forced
+            preheat/boost only.
+            'Maintain Only' – hold at comfort base; no boosts or preheat.
+            'HVAC Off' – cut heating/cooling entirely during inhibit.
+          default: force_eco
+          selector:
+            select:
+              options:
+              - label: "Force Eco (Recommended for price signals)"
+                value: force_eco
+              - label: "Block Preheat Only"
+                value: block_preheat_only
+              - label: "Maintain Only (Cap at Comfort Base)"
+                value: maintain_only
+              - label: "HVAC Off"
+                value: hvac_off
+              custom_value: false
+              sort: false
+              multiple: false
 
 # ------------------------------------------------------------------------------
 # AUTOMATION CONFIGURATION
@@ -671,6 +771,11 @@ variables:
   v_dry_air_shift_k_in: !input dry_air_setpoint_shift_k
   v_overshoot_enabled: !input overshoot_enabled
   v_overshoot_threshold_k: !input overshoot_threshold_k
+  v_overshoot_lock_helper: !input overshoot_lock_helper
+  v_overshoot_release_k: !input overshoot_release_k
+  v_overshoot_min_off_min: !input overshoot_min_off_min
+  v_ext_inhibit_entity: !input external_inhibit_entity
+  v_ext_inhibit_policy: !input external_inhibit_policy
   v_mh_mode_in: !input manual_hold_mode
   v_mh_minutes_in: !input manual_hold_minutes
   v_mh_helper_in: !input manual_hold_helper
@@ -1422,9 +1527,66 @@ actions:
                 data:
                   preset_mode: '{{ v_force_preset_in }}'
       
-      # E) Safety: Overshoot Shutoff
+      # E) Safety: Overshoot Shutoff (with Stateful Latch)
+      # E1: Release check – clear the latch when temp returns near setpoint AND min-off elapsed
+      # E2: Lock hold  – HVAC stays off while latch is active
+      # E3: New trigger – engage latch (or stateless shutoff) when overshoot detected
       - alias: 'Safety: Overshoot Shutoff'
         choose:
+        # E1: Release latch when temperature has recovered and min-off time has passed
+        - conditions:
+          - condition: template
+            value_template: >
+              {% set lock = v_overshoot_lock_helper %}
+              {% set lock_active = lock not in [none, [], ''] and is_state(lock, 'on') %}
+              {% if lock_active %}
+                {% set actual = state_attr(v_climate, 'current_temperature') | float(none) %}
+                {% set setpoint = send_temp | float %}
+                {% set release_k = v_overshoot_release_k | float(0.5) %}
+                {% set min_off = v_overshoot_min_off_min | int(15) %}
+                {% if min_off > 0 %}
+                  {% set lc = states[lock].last_changed if lock in states else now() %}
+                  {% set elapsed_min = ((as_timestamp(now()) - as_timestamp(lc)) / 60) | int(0) %}
+                  {% set time_ok = elapsed_min >= min_off %}
+                {% else %}
+                  {% set time_ok = true %}
+                {% endif %}
+                {{ actual is not none and (actual - setpoint) <= release_k and time_ok }}
+              {% else %}false{% endif %}
+          sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: '{{ v_overshoot_lock_helper }}'
+          - if:
+            - condition: template
+              value_template: '{{ v_logging | bool }}'
+            then:
+            - action: logbook.log
+              data:
+                name: EN 16798-1 Ctrl
+                message: >
+                  Overshoot Lock Released: {{ state_attr(v_climate, 'current_temperature') }}°C
+                  returned within {{ v_overshoot_release_k }}°C of setpoint {{ send_temp }}°C.
+                entity_id: !input climate_entity
+        # E2: Lock is active – keep HVAC off, do not proceed to normal setpoint logic
+        - conditions:
+          - condition: template
+            value_template: >
+              {% set lock = v_overshoot_lock_helper %}
+              {{ lock not in [none, [], ''] and is_state(lock, 'on') }}
+          sequence:
+          - choose:
+            - conditions:
+              - condition: template
+                value_template: "{{ 'off' in (state_attr(v_climate, 'hvac_modes') or []) and states(v_climate) != 'off' }}"
+              sequence:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: !input climate_entity
+                data:
+                  hvac_mode: 'off'
+          - stop: Overshoot lock active – HVAC held off.
+        # E3: New overshoot trigger – engage latch (if helper set) or stateless shutoff
         - conditions:
           - condition: template
             value_template: >
@@ -1451,6 +1613,14 @@ actions:
                   is {{ (state_attr(v_climate, 'current_temperature') | float - send_temp | float) | round(1) }}°C
                   above setpoint {{ send_temp }}°C. HVAC set to OFF.
                 entity_id: !input climate_entity
+          - choose:
+            - conditions:
+              - condition: template
+                value_template: "{{ v_overshoot_lock_helper not in [none, [], ''] }}"
+              sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: '{{ v_overshoot_lock_helper }}'
           - action: climate.set_hvac_mode
             target:
               entity_id: !input climate_entity
@@ -1518,6 +1688,96 @@ actions:
             data:
               temperature: '{{ dry_air_reduced_setpoint | float | round(1) }}'
           - stop: Dry Air Protection (Reduce).
+
+      # G) External Inhibit: Policy Enforcement
+      # Applies after all safety checks, before the final setpoint write.
+      # Allows any binary condition (price signals, DR events, etc.) to
+      # modify or block the computed setpoint.
+      - alias: 'External Inhibit: Policy Enforcement'
+        variables:
+          inhibit_active: >
+            {% set ent = v_ext_inhibit_entity %}
+            {{ ent not in [none, [], ''] and is_state(ent, 'on') }}
+          inhibit_policy: '{{ v_ext_inhibit_policy | default("none") }}'
+          # Compute inhibit-modified setpoint for setpoint-changing policies
+          inhibit_send_temp: >
+            {% if not (inhibit_active | bool) %}
+              {{ send_temp }}
+            {% elif inhibit_policy == 'force_eco' %}
+              {% set base = target_comfort_eff | float %}
+              {% set eco_k = eco_shift_k | float(2.0) %}
+              {% if season_ctrl == 'cooling' %}
+                {{ [dev_hi_eff | float, [base + eco_k, dev_lo_eff | float] | max] | min | round(1) }}
+              {% else %}
+                {{ [dev_hi_eff | float, [base - eco_k, dev_lo_eff | float] | max] | min | round(1) }}
+              {% endif %}
+            {% elif inhibit_policy == 'maintain_only' %}
+              {{ [dev_hi_eff | float, [target_comfort_eff | float, dev_lo_eff | float] | max] | min | round(1) }}
+            {% elif inhibit_policy == 'block_preheat_only' %}
+              {% if active_mode_label == 'PRE-HEAT' %}
+                {{ [dev_hi_eff | float, [target_comfort_eff | float, dev_lo_eff | float] | max] | min | round(1) }}
+              {% else %}
+                {{ send_temp }}
+              {% endif %}
+            {% else %}
+              {{ send_temp }}
+            {% endif %}
+        choose:
+        # HVAC Off policy
+        - conditions:
+          - condition: template
+            value_template: >
+              {{ (inhibit_active | bool)
+                 and inhibit_policy == 'hvac_off'
+                 and 'off' in (state_attr(v_climate, 'hvac_modes') or [])
+                 and states(v_climate) != 'off' }}
+          sequence:
+          - if:
+            - condition: template
+              value_template: '{{ v_logging | bool }}'
+            then:
+            - action: logbook.log
+              data:
+                name: EN 16798-1 Ctrl
+                message: >
+                  External Inhibit ({{ inhibit_policy }}): HVAC set to OFF.
+                entity_id: !input climate_entity
+          - action: climate.set_hvac_mode
+            target:
+              entity_id: !input climate_entity
+            data:
+              hvac_mode: 'off'
+          - stop: External Inhibit (HVAC Off).
+        # Setpoint-modifying policies (force_eco, maintain_only, block_preheat_only)
+        - conditions:
+          - condition: template
+            value_template: >
+              {{ (inhibit_active | bool)
+                 and inhibit_policy in ['force_eco', 'maintain_only', 'block_preheat_only']
+                 and (
+                   (state_attr(v_climate, 'temperature') is not number)
+                   or
+                   ((inhibit_send_temp | float - state_attr(v_climate, 'temperature') | float) | abs
+                    >= ([state_attr(v_climate, 'target_temp_step') | float(0.5), 0.2] | max) * 0.999)
+                 ) }}
+          sequence:
+          - if:
+            - condition: template
+              value_template: '{{ v_logging | bool }}'
+            then:
+            - action: logbook.log
+              data:
+                name: EN 16798-1 Ctrl
+                message: >
+                  External Inhibit ({{ inhibit_policy }}): Setpoint → {{ inhibit_send_temp }}°C
+                  (was {{ send_temp }}°C, mode {{ active_mode_label }}).
+                entity_id: !input climate_entity
+          - action: climate.set_temperature
+            target:
+              entity_id: !input climate_entity
+            data:
+              temperature: '{{ inhibit_send_temp | float | round(1) }}'
+          - stop: External Inhibit (Setpoint Modified).
 
       # D) Set Temperature
       # Protected against overwriting Manual Hold
