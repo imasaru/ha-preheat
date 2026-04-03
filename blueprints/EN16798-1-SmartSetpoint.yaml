@@ -15,7 +15,7 @@ blueprint:
     **⚠️ IMPORTANT:**
     - Designed for **Metric Systems (°C)** only.
   domain: automation
-  author: Tobias Paul
+  author: Tobias Paul, imasaru
   source_url: "https://gist.github.com/Ecronika/6751f92f7d5717bbe14b43e5ee36ebe7"
   homeassistant:
     min_version: 2024.10.0
@@ -582,8 +582,8 @@ blueprint:
                 - domain: input_number
 
     section_external_inhibit:
-      name: External Inhibit / Price Policy
-      icon: mdi:cash-clock
+      name: External Inhibit
+      icon: mdi:cancel
       collapsed: true
       input:
         external_inhibit_entity:

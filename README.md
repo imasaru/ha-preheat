@@ -27,7 +27,7 @@ Detailed documentation is available in the `docs/` folder:
 ### 1. The Easy Way (Blueprint)
 Use the official **Smart Setpoint Controller** Blueprint. It connects this integration with your thermostats (TRVs) in seconds:
 
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgist.github.com%2FEcronika%2F6751f92f7d5717bbe14b43e5ee36ebe7)
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fimasaru%2Fha-preheat%2Fmain%2Fblueprints%2FEN16798-1-SmartSetpoint.yaml)
 
 > **Blueprint also available in this repository:**
 > [`blueprints/EN16798-1-SmartSetpoint.yaml`](blueprints/EN16798-1-SmartSetpoint.yaml)
