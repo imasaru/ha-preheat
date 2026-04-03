@@ -155,15 +155,15 @@ class TestInhibitConstants(unittest.TestCase):
 
 
 class TestCheapPreheatLeadConfig(unittest.TestCase):
-    """Tests that cheap_preheat_lead_min constant and default are sane."""
+    """Tests that inhibit_preheat_offset_min constant and default are sane."""
 
     def test_default_is_zero(self):
-        from custom_components.preheat.const import DEFAULT_CHEAP_PREHEAT_LEAD_MIN
-        self.assertEqual(DEFAULT_CHEAP_PREHEAT_LEAD_MIN, 0)
+        from custom_components.preheat.const import DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN
+        self.assertEqual(DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN, 0)
 
     def test_conf_key(self):
-        from custom_components.preheat.const import CONF_CHEAP_PREHEAT_LEAD_MIN
-        self.assertEqual(CONF_CHEAP_PREHEAT_LEAD_MIN, "cheap_preheat_lead_min")
+        from custom_components.preheat.const import CONF_INHIBIT_PREHEAT_OFFSET_MIN
+        self.assertEqual(CONF_INHIBIT_PREHEAT_OFFSET_MIN, "inhibit_preheat_offset_min")
 
     def test_inhibit_entity_conf_key(self):
         from custom_components.preheat.const import CONF_INHIBIT_ENTITY

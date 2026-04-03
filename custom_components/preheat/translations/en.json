@@ -86,12 +86,12 @@
           "physics_mode": "Physics Engine Mode",
           "inhibit_entity_id": "Price / External Inhibit Entity (Optional)",
           "inhibit_mode": "Inhibit Policy",
-          "cheap_preheat_lead_min": "Cheap-Period Lead Time (Minutes)"
+          "inhibit_preheat_offset_min": "Preheat Timing Offset under Inhibit (Minutes)"
         },
         "data_description": {
           "preheat_lock": "If this entity is ON, preheating is prevented (e.g. Window Contact or Maintenance Switch).",
           "inhibit_entity_id": "A binary_sensor, input_boolean, or switch that is ON during expensive energy periods. When ON, the selected Inhibit Policy is applied.",
-          "cheap_preheat_lead_min": "Even during an expensive period, allow preheat to start if the next arrival is within this many minutes. This pre-shifts heating load into a cheaper window just before arrival."
+          "inhibit_preheat_offset_min": "Adjusts the preheat trigger window while the inhibit entity is active. Positive values allow an earlier start (extend the lead window); negative values allow only a later start (compress the lead window, closer to arrival). Zero = always block."
         }
       }
     },

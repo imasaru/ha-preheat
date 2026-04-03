@@ -86,7 +86,7 @@
           "physics_mode": "Physics Engine Mode",
           "inhibit_entity_id": "Price / External Inhibit Entity (Optional)",
           "inhibit_mode": "Inhibit Policy",
-          "cheap_preheat_lead_min": "Cheap-Period Lead Time (Minutes)"
+          "inhibit_preheat_offset_min": "Preheat Timing Offset under Inhibit (Minutes)"
         }
       }
     },

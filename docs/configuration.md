@@ -46,31 +46,50 @@ After installation, click **Configure** on the integration entry to access addit
 
 ### 💰 Price / Inhibit Policy
 
-Configure the integration to respond to energy pricing signals (e.g. dynamic tariffs, Tibber cheap/expensive periods).
+Configure the integration to respond to any external signal (energy pricing, demand-response, maintenance windows, etc.).
 
 | **Setting** | **Description** | **Default** |
 | :--- | :--- | :--- |
-| **Price / External Inhibit Entity** | A `binary_sensor`, `input_boolean`, `schedule`, or `switch` that is **ON** during **expensive** (inhibit) periods. | None |
-| **Inhibit Policy** | What to do when the inhibit entity is ON (i.e. during expensive periods). | `none` (disabled) |
-| **Cheap-Period Lead Time (Minutes)** | Even during an expensive period, allow preheat to start if a next arrival is within this many minutes. This lets the system pre-shift heating load into a cheap window just before arrival. | `0` (disabled) |
+| **Price / External Inhibit Entity** | A `binary_sensor`, `input_boolean`, `schedule`, or `switch` that is **ON** during the inhibit condition (e.g. expensive energy period). | None |
+| **Inhibit Policy** | What to do when the inhibit entity is ON. | `none` (disabled) |
+| **Preheat Timing Offset (Minutes)** | Adjusts the preheat trigger window while the inhibit entity is active. **Positive** = allow earlier start (shifts heating load before inhibit condition). **Negative** = allow only a later start (starts closer to arrival). `0` = always block preheat during inhibit. | `0` |
 
 **Inhibit Policy Options:**
 
 | **Policy** | **Behaviour** |
 | :--- | :--- |
 | `none` | Inhibit entity is ignored. No change in behaviour. |
-| `block_preheat` | Preheat start is blocked while the inhibit entity is ON (expensive period). Frost protection always overrides. If **Cheap-Period Lead Time** is > 0, preheat is still allowed when arrival is imminent (within the lead window). |
-| `force_eco_signal` | Treats the zone as unoccupied (Eco mode) while inhibited; preheat is suppressed. Frost protection always overrides. |
+| `block_preheat` | Preheat start is blocked while the inhibit entity is ON. Frost protection always overrides. The **Timing Offset** adjusts when the block can be bypassed. |
+| `force_eco_signal` | Treats the zone as unoccupied (Eco mode) while inhibited; preheat is suppressed. Frost protection always overrides. The **Timing Offset** applies here too. |
+
+**How the Timing Offset works:**
+
+When an inhibit condition is active, the integration computes an *effective lead window*:
+
+> **effective window = predicted heating duration + timing offset**
+
+- If arrival is still **within** the effective window → bypass the inhibit and allow preheat.
+- If arrival is **outside** the effective window → apply the inhibit policy (block or eco).
+
+| **Offset value** | **Effect during inhibit** |
+| :--- | :--- |
+| `0` (default) | Always block / eco — no bypass at any point. |
+| `+60` min | Allow preheat up to 60 minutes earlier than normal — useful for pre-shifting load before an expensive period. |
+| `−30` min | Only allow preheat when arrival is 30 minutes *closer* than the normal trigger — shortens run time to cut cost. |
 
 > [!TIP]
-> **Example setup with dynamic tariff (e.g. Tibber)**:
-> 1. Create a `binary_sensor` or `input_boolean` that is `ON` during **expensive** hours (inhibit signal).
+> **Example — dynamic tariff (e.g. Tibber)**:
+> 1. Create a `binary_sensor` that is `ON` during **expensive** hours.
 > 2. Set **Inhibit Entity** to that sensor.
 > 3. Set **Policy** to `block_preheat`.
-> 4. Set **Cheap-Period Lead Time** to `60` minutes so the system can still pre-heat before you arrive even if the expensive period hasn't ended yet.
+> 4. Set **Timing Offset** to `+60` min so preheat can still fire just before you arrive, even during an expensive window.
+
+> [!TIP]
+> **Example — window / maintenance signal**:
+> Set **Inhibit Entity** to a window contact sensor, **Policy** to `block_preheat`, and leave **Timing Offset** at `0` to fully block heating while the window is open.
 
 > [!NOTE]
-> **Frost protection always overrides inhibits.** If the room drops below the frost threshold (5 °C), preheating starts regardless of price signals.
+> **Frost protection always overrides inhibits.** If the room drops below the frost threshold (5 °C), preheating starts regardless of any inhibit signal.
 
 ---
 

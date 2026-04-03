@@ -37,12 +37,12 @@ from .const import (
     DEFAULT_MAX_HOURS,
     CONF_INHIBIT_ENTITY,
     CONF_INHIBIT_MODE,
-    CONF_CHEAP_PREHEAT_LEAD_MIN,
+    CONF_INHIBIT_PREHEAT_OFFSET_MIN,
     INHIBIT_NONE,
     INHIBIT_BLOCK_PREHEAT,
     INHIBIT_FORCE_ECO,
     DEFAULT_INHIBIT_MODE,
-    DEFAULT_CHEAP_PREHEAT_LEAD_MIN,
+    DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN,
 )
 
 # Centralized Option Definitions (Key -> {selector, default})
@@ -131,11 +131,11 @@ OPTION_SETTINGS = {
         ),
         "default": DEFAULT_INHIBIT_MODE
     },
-    CONF_CHEAP_PREHEAT_LEAD_MIN: {
+    CONF_INHIBIT_PREHEAT_OFFSET_MIN: {
         "selector": selector.NumberSelector(
-            selector.NumberSelectorConfig(min=0, max=180, step=15, unit_of_measurement="min", mode="box")
+            selector.NumberSelectorConfig(min=-180, max=180, step=15, unit_of_measurement="min", mode="box")
         ),
-        "default": DEFAULT_CHEAP_PREHEAT_LEAD_MIN
+        "default": DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN
     },
 }
 

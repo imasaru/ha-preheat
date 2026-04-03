@@ -130,12 +130,12 @@ from .const import (
     # Price / Inhibit Policy (v2.9.3)
     CONF_INHIBIT_ENTITY,
     CONF_INHIBIT_MODE,
-    CONF_CHEAP_PREHEAT_LEAD_MIN,
+    CONF_INHIBIT_PREHEAT_OFFSET_MIN,
     INHIBIT_NONE,
     INHIBIT_BLOCK_PREHEAT,
     INHIBIT_FORCE_ECO,
     DEFAULT_INHIBIT_MODE,
-    DEFAULT_CHEAP_PREHEAT_LEAD_MIN,
+    DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN,
 )
 
 from .planner import PreheatPlanner
@@ -1170,39 +1170,40 @@ class PreheatingCoordinator(DataUpdateCoordinator[PreheatData]):
         if selected_provider == PROVIDER_MANUAL and not frost_override:
              should_start = False
 
-        # Price / Inhibit Policy (v2.9.3)
+        # Inhibit Policy (v2.9.3)
         # Frost protection always wins over inhibit.
         inhibit_active = False
         inhibit_reason = None
         if not frost_override:
             inhibit_entity = self._get_conf(CONF_INHIBIT_ENTITY)
             inhibit_mode = self._get_conf(CONF_INHIBIT_MODE, DEFAULT_INHIBIT_MODE)
-            cheap_lead_min = float(self._get_conf(CONF_CHEAP_PREHEAT_LEAD_MIN, DEFAULT_CHEAP_PREHEAT_LEAD_MIN))
+            inhibit_offset = float(self._get_conf(CONF_INHIBIT_PREHEAT_OFFSET_MIN, DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN))
 
             if inhibit_entity and inhibit_mode != INHIBIT_NONE:
                 inhibit_state = self.hass.states.get(inhibit_entity)
                 is_inhibited = inhibit_state is not None and inhibit_state.state == STATE_ON
 
-                if is_inhibited:
-                    if inhibit_mode == INHIBIT_BLOCK_PREHEAT:
-                        # Check cheap-period lead: if cheap period starts within lead window,
-                        # allow preheat to shift load into cheap period.
-                        allow_early = False
-                        if cheap_lead_min > 0 and ctx["next_event"]:
-                            minutes_to_event = (ctx["next_event"] - now).total_seconds() / 60.0
-                            # Allow preheat if within lead window (i.e. event is imminent enough)
-                            # Guard against past events (negative values) triggering early start
-                            if 0 < minutes_to_event <= cheap_lead_min:
-                                allow_early = True
-                        if not allow_early:
-                            should_start = False
-                            inhibit_active = True
-                            inhibit_reason = INHIBIT_BLOCK_PREHEAT
-                    elif inhibit_mode == INHIBIT_FORCE_ECO:
-                        # Treat as not-present: suppress preheat start
+                if is_inhibited and inhibit_mode in (INHIBIT_BLOCK_PREHEAT, INHIBIT_FORCE_ECO):
+                    # Determine whether the timing offset overrides the inhibit.
+                    # offset > 0: allow earlier start – bypass inhibit when arrival is within
+                    #             (predicted_duration + offset) minutes (extended lead window).
+                    # offset < 0: allow only a late start – bypass only when arrival is within
+                    #             (predicted_duration + offset) minutes, i.e. closer to arrival.
+                    # offset = 0: no bypass – always block when the entity is inhibited.
+                    allow_under_inhibit = False
+                    if inhibit_offset != 0 and ctx["next_event"]:
+                        minutes_to_event = (ctx["next_event"] - now).total_seconds() / 60.0
+                        effective_duration = pred["predicted_duration"] + inhibit_offset
+                        if 0 < minutes_to_event <= max(0.0, effective_duration):
+                            allow_under_inhibit = True
+
+                    if allow_under_inhibit:
+                        # Offset clears the inhibit at this moment; ensure preheat can fire.
+                        should_start = True
+                    else:
                         should_start = False
                         inhibit_active = True
-                        inhibit_reason = INHIBIT_FORCE_ECO
+                        inhibit_reason = inhibit_mode
 
         # Shadow Metrics Logic
         shadow_metrics = {"safety_violations": 0}
