@@ -44,6 +44,34 @@ After installation, click **Configure** on the integration entry to access addit
 *   **Workday Sensor**: Select a `binary_sensor` (usually `binary_sensor.workday_sensor`) to distinguish weekends/holidays.
 *   **Valve Position Sensor**: Optional sensor for TRV valve position (improves learning accuracy).
 
+### 💰 Price / Inhibit Policy
+
+Configure the integration to respond to energy pricing signals (e.g. dynamic tariffs, Tibber cheap/expensive periods).
+
+| **Setting** | **Description** | **Default** |
+| :--- | :--- | :--- |
+| **Price / External Inhibit Entity** | A `binary_sensor`, `input_boolean`, `schedule`, or `switch` that is **ON** during **expensive** (inhibit) periods. | None |
+| **Inhibit Policy** | What to do when the inhibit entity is ON (i.e. during expensive periods). | `none` (disabled) |
+| **Cheap-Period Lead Time (Minutes)** | Even during an expensive period, allow preheat to start if a next arrival is within this many minutes. This lets the system pre-shift heating load into a cheap window just before arrival. | `0` (disabled) |
+
+**Inhibit Policy Options:**
+
+| **Policy** | **Behaviour** |
+| :--- | :--- |
+| `none` | Inhibit entity is ignored. No change in behaviour. |
+| `block_preheat` | Preheat start is blocked while the inhibit entity is ON (expensive period). Frost protection always overrides. If **Cheap-Period Lead Time** is > 0, preheat is still allowed when arrival is imminent (within the lead window). |
+| `force_eco_signal` | Treats the zone as unoccupied (Eco mode) while inhibited; preheat is suppressed. Frost protection always overrides. |
+
+> [!TIP]
+> **Example setup with dynamic tariff (e.g. Tibber)**:
+> 1. Create a `binary_sensor` or `input_boolean` that is `ON` during **expensive** hours (inhibit signal).
+> 2. Set **Inhibit Entity** to that sensor.
+> 3. Set **Policy** to `block_preheat`.
+> 4. Set **Cheap-Period Lead Time** to `60` minutes so the system can still pre-heat before you arrive even if the expensive period hasn't ended yet.
+
+> [!NOTE]
+> **Frost protection always overrides inhibits.** If the room drops below the frost threshold (5 °C), preheating starts regardless of price signals.
+
 ---
 
 ## Advanced Settings (Auto-Configured)
@@ -85,6 +113,15 @@ The following settings are now **automatically determined** based on your Heatin
 *   **`sensor.*_target_temperature`**: The effective target setpoint.
 *   **`sensor.*_next_arrival_time`**: Next expected occupancy event.
 *   **`sensor.*_next_session_end`**: When the current session ends (for Optimal Stop).
+
+The main **`sensor.*_status`** sensor also exposes extra attributes for automation and diagnostics:
+
+| **Attribute** | **Description** |
+| :--- | :--- |
+| `inhibit_active` | `true` if a price/inhibit policy is currently suppressing preheat. |
+| `inhibit_reason` | The active inhibit mode (`block_preheat` or `force_eco_signal`), or `null` if not inhibited. |
+| `coast_minutes_per_k` | Estimated minutes for the room to cool by 1 °C (thermal time constant). |
+| `decision_trace` | Full internal decision trace for debugging (provider selected, gates failed, inhibit state). |
 
 ### 🛠️ Maintenance (Buttons)
 *   **`button.*_recompute`**: Force immediate re-evaluation of all logic.

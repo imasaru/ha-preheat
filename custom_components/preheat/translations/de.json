@@ -83,10 +83,15 @@
           "enable_optimal_stop": "Optimal Stop aktivieren (Coasting)",
           "schedule_entity": "Zeitplan-Helfer (Schedule Entity)",
           "stop_tolerance": "Abschalt-Toleranz (K)",
-          "max_coast_hours": "Max. Coasting-Dauer (Stunden)"
+          "max_coast_hours": "Max. Coasting-Dauer (Stunden)",
+          "inhibit_entity_id": "Preis-/Extern-Inhibit-Entit\u00e4t (Optional)",
+          "inhibit_mode": "Inhibit-Richtlinie",
+          "cheap_preheat_lead_min": "G\u00fcnstig-Zeitraum Vorlaufzeit (Minuten)"
         },
         "data_description": {
-          "preheat_lock": "Wenn diese Entit\u00e4t AN/ON ist, wird das Vorheizen blockiert (z.B. Fenster offen oder Wartungsschalter)."
+          "preheat_lock": "Wenn diese Entit\u00e4t AN/ON ist, wird das Vorheizen blockiert (z.B. Fenster offen oder Wartungsschalter).",
+          "inhibit_entity_id": "Ein binary_sensor, input_boolean oder Schalter, der eine teure Energieperiode signalisiert. Wenn AN, wird die gew\u00e4hlte Inhibit-Richtlinie angewendet.",
+          "cheap_preheat_lead_min": "Wenn eine Ankunft innerhalb dieser Minuten bevorsteht, wird das Vorheizen auch w\u00e4hrend eines Inhibit-Zeitraums erlaubt, um die Heizlast in die g\u00fcnstige Zeit zu verschieben."
         }
       }
     },
@@ -125,6 +130,13 @@
       "options": {
         "standard": "Standard (Zuverl\u00e4ssig)",
         "advanced": "Erweitert (Euler Simulation)"
+      }
+    },
+    "inhibit_mode": {
+      "options": {
+        "none": "Kein Inhibit (Deaktiviert)",
+        "block_preheat": "Vorheizen blockieren (Teure Periode)",
+        "force_eco_signal": "Eco-Modus erzwingen / Als unbesetzt behandeln"
       }
     }
   },

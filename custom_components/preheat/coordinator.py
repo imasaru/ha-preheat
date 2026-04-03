@@ -126,7 +126,16 @@ from .const import (
     STARTUP_GRACE_SEC,
     WINDOW_OPEN_GRADIENT,
     WINDOW_OPEN_TIME,
-    WINDOW_COOLDOWN_MIN
+    WINDOW_COOLDOWN_MIN,
+    # Price / Inhibit Policy (v2.9.3)
+    CONF_INHIBIT_ENTITY,
+    CONF_INHIBIT_MODE,
+    CONF_CHEAP_PREHEAT_LEAD_MIN,
+    INHIBIT_NONE,
+    INHIBIT_BLOCK_PREHEAT,
+    INHIBIT_FORCE_ECO,
+    DEFAULT_INHIBIT_MODE,
+    DEFAULT_CHEAP_PREHEAT_LEAD_MIN,
 )
 
 from .planner import PreheatPlanner
@@ -1161,6 +1170,40 @@ class PreheatingCoordinator(DataUpdateCoordinator[PreheatData]):
         if selected_provider == PROVIDER_MANUAL and not frost_override:
              should_start = False
 
+        # Price / Inhibit Policy (v2.9.3)
+        # Frost protection always wins over inhibit.
+        inhibit_active = False
+        inhibit_reason = None
+        if not frost_override:
+            inhibit_entity = self._get_conf(CONF_INHIBIT_ENTITY)
+            inhibit_mode = self._get_conf(CONF_INHIBIT_MODE, DEFAULT_INHIBIT_MODE)
+            cheap_lead_min = float(self._get_conf(CONF_CHEAP_PREHEAT_LEAD_MIN, DEFAULT_CHEAP_PREHEAT_LEAD_MIN))
+
+            if inhibit_entity and inhibit_mode != INHIBIT_NONE:
+                inhibit_state = self.hass.states.get(inhibit_entity)
+                is_inhibited = inhibit_state is not None and inhibit_state.state == STATE_ON
+
+                if is_inhibited:
+                    if inhibit_mode == INHIBIT_BLOCK_PREHEAT:
+                        # Check cheap-period lead: if cheap period starts within lead window,
+                        # allow preheat to shift load into cheap period.
+                        allow_early = False
+                        if cheap_lead_min > 0 and ctx["next_event"]:
+                            minutes_to_event = (ctx["next_event"] - now).total_seconds() / 60.0
+                            # Allow preheat if within lead window (i.e. event is imminent enough)
+                            # Guard against past events (negative values) triggering early start
+                            if 0 < minutes_to_event <= cheap_lead_min:
+                                allow_early = True
+                        if not allow_early:
+                            should_start = False
+                            inhibit_active = True
+                            inhibit_reason = INHIBIT_BLOCK_PREHEAT
+                    elif inhibit_mode == INHIBIT_FORCE_ECO:
+                        # Treat as not-present: suppress preheat start
+                        should_start = False
+                        inhibit_active = True
+                        inhibit_reason = INHIBIT_FORCE_ECO
+
         # Shadow Metrics Logic
         shadow_metrics = {"safety_violations": 0}
         if learned_decision.is_valid and learned_decision.is_shadow and learned_decision.should_stop:
@@ -1179,7 +1222,9 @@ class PreheatingCoordinator(DataUpdateCoordinator[PreheatData]):
                  PROVIDER_LEARNED: asdict(learned_decision)
              },
              KEY_GATES_FAILED: gates_failed,
-             "metrics": shadow_metrics
+             "metrics": shadow_metrics,
+             "inhibit_active": inhibit_active,
+             "inhibit_reason": inhibit_reason,
         }
         
         return {
@@ -1188,7 +1233,9 @@ class PreheatingCoordinator(DataUpdateCoordinator[PreheatData]):
              "reason": "arbitrated",
              "blocked_by": gates_failed,
              "frost_override": frost_override,
-             "effective_departure": effective_departure
+             "effective_departure": effective_departure,
+             "inhibit_active": inhibit_active,
+             "inhibit_reason": inhibit_reason,
         }
 
     async def _execute_control_actions(self, ctx: Context, dec: Decision) -> None:
