@@ -84,7 +84,7 @@
           "use_forecast": "Use Weather Forecast",
           "risk_mode": "Forecast Risk Strategy",
           "physics_mode": "Physics Engine Mode",
-          "inhibit_entity_id": "Price / External Inhibit Entity (Optional)",
+          "inhibit_entity_id": "External Inhibit Entity (Optional)",
           "inhibit_mode": "Inhibit Policy",
           "inhibit_preheat_offset_min": "Preheat Timing Offset under Inhibit (Minutes)"
         }

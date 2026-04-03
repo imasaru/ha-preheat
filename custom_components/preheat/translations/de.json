@@ -84,13 +84,13 @@
           "schedule_entity": "Zeitplan-Helfer (Schedule Entity)",
           "stop_tolerance": "Abschalt-Toleranz (K)",
           "max_coast_hours": "Max. Coasting-Dauer (Stunden)",
-          "inhibit_entity_id": "Preis-/Extern-Inhibit-Entit\u00e4t (Optional)",
+          "inhibit_entity_id": "Extern-Inhibit-Entit\u00e4t (Optional)",
           "inhibit_mode": "Inhibit-Richtlinie",
           "inhibit_preheat_offset_min": "Vorheiz-Zeitversatz bei Inhibit (Minuten)"
         },
         "data_description": {
           "preheat_lock": "Wenn diese Entit\u00e4t AN/ON ist, wird das Vorheizen blockiert (z.B. Fenster offen oder Wartungsschalter).",
-          "inhibit_entity_id": "Ein binary_sensor, input_boolean oder Schalter, der eine teure Energieperiode signalisiert. Wenn AN, wird die gew\u00e4hlte Inhibit-Richtlinie angewendet.",
+          "inhibit_entity_id": "Ein binary_sensor, input_boolean, Zeitplan oder Schalter, der AN ist, wenn eine Inhibit-Bedingung aktiv ist (z.B. teure Energieperiode, offenes Fenster, Wartungsmodus). Wenn AN, wird die gew\u00e4hlte Inhibit-Richtlinie angewendet.",
           "inhibit_preheat_offset_min": "Passt das Vorheiz-Zeitfenster bei aktivem Inhibit an. Positive Werte erlauben einen fr\u00fcheren Start (erweitertes Vorlaufzeitfenster); negative Werte verz\u00f6gern den Start (engeres Fenster, n\u00e4her an der Ankunft). Null = immer blockieren."
         }
       }

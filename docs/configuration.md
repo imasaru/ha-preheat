@@ -44,15 +44,15 @@ After installation, click **Configure** on the integration entry to access addit
 *   **Workday Sensor**: Select a `binary_sensor` (usually `binary_sensor.workday_sensor`) to distinguish weekends/holidays.
 *   **Valve Position Sensor**: Optional sensor for TRV valve position (improves learning accuracy).
 
-### 💰 Price / Inhibit Policy
+### 🚦 Inhibit Policy
 
-Configure the integration to respond to any external signal (energy pricing, demand-response, maintenance windows, etc.).
+Configure the integration to respond to any external ON/OFF signal — energy pricing, demand-response, window sensors, maintenance flags, occupancy schedules, or anything else.
 
 | **Setting** | **Description** | **Default** |
 | :--- | :--- | :--- |
-| **Price / External Inhibit Entity** | A `binary_sensor`, `input_boolean`, `schedule`, or `switch` that is **ON** during the inhibit condition (e.g. expensive energy period). | None |
+| **External Inhibit Entity** | A `binary_sensor`, `input_boolean`, `schedule`, or `switch` that is **ON** when the inhibit condition is active. | None |
 | **Inhibit Policy** | What to do when the inhibit entity is ON. | `none` (disabled) |
-| **Preheat Timing Offset (Minutes)** | Adjusts the preheat trigger window while the inhibit entity is active. **Positive** = allow earlier start (shifts heating load before inhibit condition). **Negative** = allow only a later start (starts closer to arrival). `0` = always block preheat during inhibit. | `0` |
+| **Preheat Timing Offset (Minutes)** | Adjusts the preheat trigger window while the inhibit entity is active. **Positive** = allow earlier start. **Negative** = allow only a later start (closer to arrival). `0` = always block preheat during inhibit. | `0` |
 
 **Inhibit Policy Options:**
 
@@ -74,15 +74,14 @@ When an inhibit condition is active, the integration computes an *effective lead
 | **Offset value** | **Effect during inhibit** |
 | :--- | :--- |
 | `0` (default) | Always block / eco — no bypass at any point. |
-| `+60` min | Allow preheat up to 60 minutes earlier than normal — useful for pre-shifting load before an expensive period. |
-| `−30` min | Only allow preheat when arrival is 30 minutes *closer* than the normal trigger — shortens run time to cut cost. |
+| `+N` min | Allow preheat to start up to N minutes earlier than normal. |
+| `−N` min | Allow preheat only when arrival is N minutes closer than normal (shorter run time). |
 
 > [!TIP]
-> **Example — dynamic tariff (e.g. Tibber)**:
-> 1. Create a `binary_sensor` that is `ON` during **expensive** hours.
-> 2. Set **Inhibit Entity** to that sensor.
-> 3. Set **Policy** to `block_preheat`.
-> 4. Set **Timing Offset** to `+60` min so preheat can still fire just before you arrive, even during an expensive window.
+> **Example — dynamic energy tariff (e.g. Tibber)**:
+> 1. Create a `binary_sensor` that is `ON` during expensive hours.
+> 2. Set **Inhibit Entity** to that sensor, **Policy** to `block_preheat`.
+> 3. Set **Timing Offset** to `+60` min so preheat can still fire just before arrival, even while the expensive period is active.
 
 > [!TIP]
 > **Example — window / maintenance signal**:

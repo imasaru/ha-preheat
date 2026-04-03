@@ -84,13 +84,13 @@
           "use_forecast": "Use Weather Forecast",
           "risk_mode": "Forecast Risk Strategy",
           "physics_mode": "Physics Engine Mode",
-          "inhibit_entity_id": "Price / External Inhibit Entity (Optional)",
+          "inhibit_entity_id": "External Inhibit Entity (Optional)",
           "inhibit_mode": "Inhibit Policy",
           "inhibit_preheat_offset_min": "Preheat Timing Offset under Inhibit (Minutes)"
         },
         "data_description": {
           "preheat_lock": "If this entity is ON, preheating is prevented (e.g. Window Contact or Maintenance Switch).",
-          "inhibit_entity_id": "A binary_sensor, input_boolean, or switch that is ON during expensive energy periods. When ON, the selected Inhibit Policy is applied.",
+          "inhibit_entity_id": "A binary_sensor, input_boolean, schedule, or switch that is ON when an inhibit condition is active (e.g. expensive energy period, open window, maintenance mode). When ON, the selected Inhibit Policy is applied.",
           "inhibit_preheat_offset_min": "Adjusts the preheat trigger window while the inhibit entity is active. Positive values allow an earlier start (extend the lead window); negative values allow only a later start (compress the lead window, closer to arrival). Zero = always block."
         }
       }
