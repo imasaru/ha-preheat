@@ -29,8 +29,28 @@ Use the official **Smart Setpoint Controller** Blueprint. It connects this integ
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgist.github.com%2FEcronika%2F6751f92f7d5717bbe14b43e5ee36ebe7)
 
+> **Blueprint also available in this repository:**
+> [`blueprints/EN16798-1-SmartSetpoint.yaml`](blueprints/EN16798-1-SmartSetpoint.yaml)
+>
+> You can import it directly from GitHub:
+> ```
+> https://raw.githubusercontent.com/imasaru/ha-preheat/main/blueprints/EN16798-1-SmartSetpoint.yaml
+> ```
+
 *   **View Discussion:** [Smart Setpoint Blueprint (Community)](https://community.home-assistant.io/t/en-16798-1-smart-setpoint-blueprint/956624)
 *   **What it does:** Automatically switches between Comfort/Eco based on the `preheat` and `optimal_stop` signals.
+
+#### Key entities produced by ha-preheat (use these as blueprint inputs)
+
+| Entity | Description |
+|---|---|
+| `binary_sensor.<zone>_preheat_active` | ON during the calculated preheat window (use as **Pre-Heat / Forced Comfort** input) |
+| `binary_sensor.<zone>_optimal_stop_active` | ON during the coast-to-vacancy window (use as **Optimal Stop** input) |
+
+#### v5.5.0 Advanced Features
+
+*   **Overshoot Latch** – HVAC stays off after overshoot until the room cools back within a configurable hysteresis band *and* a minimum off-time has elapsed. Create an `input_boolean` helper (e.g. `input_boolean.en16798_overshoot_lock_living`) and link it as the *Overshoot Lock Helper*.
+*   **External Inhibit / Price Policy** – Link any `binary_sensor`, `input_boolean`, or `schedule` as an *External Inhibit Entity*. When it is ON, one of four policies is applied: **Force Eco** (defer heavy loads to cheap periods), **Block Preheat Only**, **Maintain Only**, or **HVAC Off**. Ideal for electricity-price-aware scheduling: set `binary_sensor.expensive_now` as the inhibit entity and choose *Force Eco* so the integration does the thermal heavy-lifting during cheap windows and eases off during expensive ones.
 
 ## ✨ Features
 
