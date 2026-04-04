@@ -35,6 +35,14 @@ from .const import (
     CONF_SCHEDULE_ENTITY,
     CONF_MAX_PREHEAT_HOURS,
     DEFAULT_MAX_HOURS,
+    CONF_INHIBIT_ENTITY,
+    CONF_INHIBIT_MODE,
+    CONF_INHIBIT_PREHEAT_OFFSET_MIN,
+    INHIBIT_NONE,
+    INHIBIT_BLOCK_PREHEAT,
+    INHIBIT_FORCE_ECO,
+    DEFAULT_INHIBIT_MODE,
+    DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN,
 )
 
 # Centralized Option Definitions (Key -> {selector, default})
@@ -106,6 +114,28 @@ OPTION_SETTINGS = {
              selector.NumberSelectorConfig(min=0.5, max=12.0, step=0.5, unit_of_measurement="h", mode="box")
         ),
         "default": DEFAULT_MAX_HOURS # Overridden by Profile Check
+    },
+    CONF_INHIBIT_ENTITY: {
+        "selector": selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=["binary_sensor", "input_boolean", "schedule", "switch"])
+        ),
+        "default": None
+    },
+    CONF_INHIBIT_MODE: {
+        "selector": selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[INHIBIT_NONE, INHIBIT_BLOCK_PREHEAT, INHIBIT_FORCE_ECO],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+                translation_key="inhibit_mode"
+            )
+        ),
+        "default": DEFAULT_INHIBIT_MODE
+    },
+    CONF_INHIBIT_PREHEAT_OFFSET_MIN: {
+        "selector": selector.NumberSelector(
+            selector.NumberSelectorConfig(min=-180, max=180, step=15, unit_of_measurement="min", mode="box")
+        ),
+        "default": DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN
     },
 }
 

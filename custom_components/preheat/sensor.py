@@ -80,6 +80,7 @@ class PreheatStatusSensor(PreheatBaseSensor):
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data
         physics = self.coordinator.physics
+        trace = data.decision_trace or {}
         return {
             "target_temp": data.target_setpoint,
             "current_temp": data.operative_temp,
@@ -98,6 +99,8 @@ class PreheatStatusSensor(PreheatBaseSensor):
             "next_departure": data.next_departure.isoformat() if data.next_departure else None,
             "optimal_stop_time": data.optimal_stop_time.isoformat() if data.optimal_stop_time else None,
             "coast_minutes_per_k": round(self.coordinator.cooling_analyzer.learned_tau * 60.0, 1),  # Room thermal time constant (cool 1°C)
+            "inhibit_active": trace.get("inhibit_active", False),
+            "inhibit_reason": trace.get("inhibit_reason"),
         }
 
 class NextEventSensor(PreheatBaseSensor):

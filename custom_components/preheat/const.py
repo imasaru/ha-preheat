@@ -238,6 +238,18 @@ GATE_FAIL_PATTERN: Final = "low_pattern_conf"
 GATE_FAIL_LATCH: Final = "setpoint_latch"
 GATE_FAIL_MANUAL: Final = "manual_hold"
 
+# --- Price / Inhibit Policy (v2.9.3) ---
+CONF_INHIBIT_ENTITY: Final = "inhibit_entity_id"
+CONF_INHIBIT_MODE: Final = "inhibit_mode"
+CONF_INHIBIT_PREHEAT_OFFSET_MIN: Final = "inhibit_preheat_offset_min"
+
+INHIBIT_NONE: Final = "none"
+INHIBIT_BLOCK_PREHEAT: Final = "block_preheat"
+INHIBIT_FORCE_ECO: Final = "force_eco_signal"
+
+DEFAULT_INHIBIT_MODE: Final = INHIBIT_NONE
+DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN: Final = 0
+
 # --- Architecture Constants (Professionalization) ---
 DIAG_STALE_SENSOR_SEC: Final = 21600 # 6 hours
 DIAG_MAX_VALVE_POS: Final = 95.0

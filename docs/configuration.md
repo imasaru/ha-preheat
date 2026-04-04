@@ -44,6 +44,52 @@ After installation, click **Configure** on the integration entry to access addit
 *   **Workday Sensor**: Select a `binary_sensor` (usually `binary_sensor.workday_sensor`) to distinguish weekends/holidays.
 *   **Valve Position Sensor**: Optional sensor for TRV valve position (improves learning accuracy).
 
+### 🚦 Inhibit Policy
+
+Configure the integration to respond to any external ON/OFF signal — energy pricing, demand-response, window sensors, maintenance flags, occupancy schedules, or anything else.
+
+| **Setting** | **Description** | **Default** |
+| :--- | :--- | :--- |
+| **External Inhibit Entity** | A `binary_sensor`, `input_boolean`, `schedule`, or `switch` that is **ON** when the inhibit condition is active. | None |
+| **Inhibit Policy** | What to do when the inhibit entity is ON. | `none` (disabled) |
+| **Preheat Timing Offset (Minutes)** | Adjusts the preheat trigger window while the inhibit entity is active. **Positive** = allow earlier start. **Negative** = allow only a later start (closer to arrival). `0` = always block preheat during inhibit. | `0` |
+
+**Inhibit Policy Options:**
+
+| **Policy** | **Behaviour** |
+| :--- | :--- |
+| `none` | Inhibit entity is ignored. No change in behaviour. |
+| `block_preheat` | Preheat start is blocked while the inhibit entity is ON. Frost protection always overrides. The **Timing Offset** adjusts when the block can be bypassed. |
+| `force_eco_signal` | Treats the zone as unoccupied (Eco mode) while inhibited; preheat is suppressed. Frost protection always overrides. The **Timing Offset** applies here too. |
+
+**How the Timing Offset works:**
+
+When an inhibit condition is active, the integration computes an *effective lead window*:
+
+> **effective window = predicted heating duration + timing offset**
+
+- If arrival is still **within** the effective window → bypass the inhibit and allow preheat.
+- If arrival is **outside** the effective window → apply the inhibit policy (block or eco).
+
+| **Offset value** | **Effect during inhibit** |
+| :--- | :--- |
+| `0` (default) | Always block / eco — no bypass at any point. |
+| `+N` min | Allow preheat to start up to N minutes earlier than normal. |
+| `−N` min | Allow preheat only when arrival is N minutes closer than normal (shorter run time). |
+
+> [!TIP]
+> **Example — dynamic energy tariff (e.g. Tibber)**:
+> 1. Create a `binary_sensor` that is `ON` during expensive hours.
+> 2. Set **Inhibit Entity** to that sensor, **Policy** to `block_preheat`.
+> 3. Set **Timing Offset** to `+60` min so preheat can still fire just before arrival, even while the expensive period is active.
+
+> [!TIP]
+> **Example — window / maintenance signal**:
+> Set **Inhibit Entity** to a window contact sensor, **Policy** to `block_preheat`, and leave **Timing Offset** at `0` to fully block heating while the window is open.
+
+> [!NOTE]
+> **Frost protection always overrides inhibits.** If the room drops below the frost threshold (5 °C), preheating starts regardless of any inhibit signal.
+
 ---
 
 ## Advanced Settings (Auto-Configured)
@@ -85,6 +131,15 @@ The following settings are now **automatically determined** based on your Heatin
 *   **`sensor.*_target_temperature`**: The effective target setpoint.
 *   **`sensor.*_next_arrival_time`**: Next expected occupancy event.
 *   **`sensor.*_next_session_end`**: When the current session ends (for Optimal Stop).
+
+The main **`sensor.*_status`** sensor also exposes extra attributes for automation and diagnostics:
+
+| **Attribute** | **Description** |
+| :--- | :--- |
+| `inhibit_active` | `true` if a price/inhibit policy is currently suppressing preheat. |
+| `inhibit_reason` | The active inhibit mode (`block_preheat` or `force_eco_signal`), or `null` if not inhibited. |
+| `coast_minutes_per_k` | Estimated minutes for the room to cool by 1 °C (thermal time constant). |
+| `decision_trace` | Full internal decision trace for debugging (provider selected, gates failed, inhibit state). |
 
 ### 🛠️ Maintenance (Buttons)
 *   **`button.*_recompute`**: Force immediate re-evaluation of all logic.

@@ -126,7 +126,16 @@ from .const import (
     STARTUP_GRACE_SEC,
     WINDOW_OPEN_GRADIENT,
     WINDOW_OPEN_TIME,
-    WINDOW_COOLDOWN_MIN
+    WINDOW_COOLDOWN_MIN,
+    # Price / Inhibit Policy (v2.9.3)
+    CONF_INHIBIT_ENTITY,
+    CONF_INHIBIT_MODE,
+    CONF_INHIBIT_PREHEAT_OFFSET_MIN,
+    INHIBIT_NONE,
+    INHIBIT_BLOCK_PREHEAT,
+    INHIBIT_FORCE_ECO,
+    DEFAULT_INHIBIT_MODE,
+    DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN,
 )
 
 from .planner import PreheatPlanner
@@ -1161,6 +1170,41 @@ class PreheatingCoordinator(DataUpdateCoordinator[PreheatData]):
         if selected_provider == PROVIDER_MANUAL and not frost_override:
              should_start = False
 
+        # Inhibit Policy (v2.9.3)
+        # Frost protection always wins over inhibit.
+        inhibit_active = False
+        inhibit_reason = None
+        if not frost_override:
+            inhibit_entity = self._get_conf(CONF_INHIBIT_ENTITY)
+            inhibit_mode = self._get_conf(CONF_INHIBIT_MODE, DEFAULT_INHIBIT_MODE)
+            inhibit_offset = float(self._get_conf(CONF_INHIBIT_PREHEAT_OFFSET_MIN, DEFAULT_INHIBIT_PREHEAT_OFFSET_MIN))
+
+            if inhibit_entity and inhibit_mode != INHIBIT_NONE:
+                inhibit_state = self.hass.states.get(inhibit_entity)
+                is_inhibited = inhibit_state is not None and inhibit_state.state == STATE_ON
+
+                if is_inhibited and inhibit_mode in (INHIBIT_BLOCK_PREHEAT, INHIBIT_FORCE_ECO):
+                    # Determine whether the timing offset overrides the inhibit.
+                    # offset > 0: allow earlier start – bypass inhibit when arrival is within
+                    #             (predicted_duration + offset) minutes (extended lead window).
+                    # offset < 0: allow only a late start – bypass only when arrival is within
+                    #             (predicted_duration + offset) minutes, i.e. closer to arrival.
+                    # offset = 0: no bypass – always block when the entity is inhibited.
+                    allow_under_inhibit = False
+                    if inhibit_offset != 0 and ctx["next_event"]:
+                        minutes_to_event = (ctx["next_event"] - now).total_seconds() / 60.0
+                        effective_duration = pred["predicted_duration"] + inhibit_offset
+                        if 0 < minutes_to_event <= max(0.0, effective_duration):
+                            allow_under_inhibit = True
+
+                    if allow_under_inhibit:
+                        # Offset clears the inhibit at this moment; ensure preheat can fire.
+                        should_start = True
+                    else:
+                        should_start = False
+                        inhibit_active = True
+                        inhibit_reason = inhibit_mode
+
         # Shadow Metrics Logic
         shadow_metrics = {"safety_violations": 0}
         if learned_decision.is_valid and learned_decision.is_shadow and learned_decision.should_stop:
@@ -1179,7 +1223,9 @@ class PreheatingCoordinator(DataUpdateCoordinator[PreheatData]):
                  PROVIDER_LEARNED: asdict(learned_decision)
              },
              KEY_GATES_FAILED: gates_failed,
-             "metrics": shadow_metrics
+             "metrics": shadow_metrics,
+             "inhibit_active": inhibit_active,
+             "inhibit_reason": inhibit_reason,
         }
         
         return {
@@ -1188,7 +1234,9 @@ class PreheatingCoordinator(DataUpdateCoordinator[PreheatData]):
              "reason": "arbitrated",
              "blocked_by": gates_failed,
              "frost_override": frost_override,
-             "effective_departure": effective_departure
+             "effective_departure": effective_departure,
+             "inhibit_active": inhibit_active,
+             "inhibit_reason": inhibit_reason,
         }
 
     async def _execute_control_actions(self, ctx: Context, dec: Decision) -> None:
