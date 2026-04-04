@@ -1502,12 +1502,24 @@ actions:
               - stop: "Manual Hold Active."
 
       # B) Wake Up & Mode Enforcement
+      # Guard: skip activation if overshoot lock is active or room already overshoots threshold.
+      # This prevents turning on immediately before E2/E3 shuts back off.
       - choose:
           - conditions:
               - condition: template
                 value_template: >
                   {% set m = state_attr(v_climate, 'hvac_modes') or [] %}
-                  {{ target_hvac_mode in m and states(v_climate) != target_hvac_mode }}
+                  {% set lock_active = v_overshoot_lock_helper not in [none, [], '']
+                     and is_state(v_overshoot_lock_helper, 'on') %}
+                  {% set actual = state_attr(v_climate, 'current_temperature') | float(none) %}
+                  {# float(1.5) mirrors the same fallback default used in E3 #}
+                  {% set overshoot_now = (v_overshoot_enabled | bool)
+                     and season_ctrl == 'heating'
+                     and not (v_pre_heat | bool)
+                     and actual is not none
+                     and (actual - send_temp | float) > (v_overshoot_threshold_k | float(1.5)) %}
+                  {{ target_hvac_mode in m and states(v_climate) != target_hvac_mode
+                     and not lock_active and not overshoot_now }}
             sequence:
               - action: climate.set_hvac_mode
                 target:
