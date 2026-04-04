@@ -1697,8 +1697,7 @@ actions:
       # Applies after all safety checks, before the final setpoint write.
       # Allows any binary condition (price signals, DR events, etc.) to
       # modify or block the computed setpoint.
-      - alias: 'External Inhibit: Policy Enforcement'
-        variables:
+      - variables:
           inhibit_active: >
             {% set ent = v_ext_inhibit_entity %}
             {{ ent not in [none, [], ''] and is_state(ent, 'on') }}
@@ -1726,6 +1725,7 @@ actions:
             {% else %}
               {{ send_temp }}
             {% endif %}
+      - alias: 'External Inhibit: Policy Enforcement'
         choose:
         # HVAC Off policy
         - conditions:
