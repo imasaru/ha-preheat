@@ -1,5 +1,5 @@
 blueprint:
-  name: EN 16798-1 – Smart Setpoint v5.5.0
+  name: EN 16798-1 – Smart Setpoint v5.5.1
   description: |
     Automated setpoint control strictly following EN 16798-1 & ASR A3.5 logic.
 
@@ -11,6 +11,12 @@ blueprint:
     External Inhibit Policy framework (force_eco / block_preheat_only /
     maintain_only / hvac_off) for electricity-price-aware scheduling or any
     custom inhibit condition.
+
+    **v5.5.1:** Fix External Inhibit oscillation when occupancy sensor activates
+    during an active inhibit period. Added `inhibit_on` / `inhibit_off` triggers
+    so the inhibit entity is now a first-class reactive trigger, eliminating the
+    race condition between `occ_on` writing Comfort and the inhibit block
+    correcting it.
 
     **⚠️ IMPORTANT:**
     - Designed for **Metric Systems (°C)** only.
@@ -645,6 +651,7 @@ trigger_variables:
   t_pre: !input pre_heat_sensor
   t_optstop: !input optimal_stop_sensor
   t_sleep: !input sleep_sensor
+  t_inhibit: !input external_inhibit_entity
 
 triggers:
   - id: ha_start
@@ -720,6 +727,16 @@ triggers:
   - id: sleep_off
     trigger: template
     value_template: "{{ t_sleep not in [none, [], ''] and is_state(t_sleep, 'off') }}"
+    for:
+      seconds: 2
+  - id: inhibit_on
+    trigger: template
+    value_template: "{{ t_inhibit not in [none, [], ''] and is_state(t_inhibit, 'on') }}"
+    for:
+      seconds: 2
+  - id: inhibit_off
+    trigger: template
+    value_template: "{{ t_inhibit not in [none, [], ''] and is_state(t_inhibit, 'off') }}"
     for:
       seconds: 2
 
@@ -798,7 +815,7 @@ conditions:
       - condition: trigger
         id: ["manual_change", "manual_change_settled"]
       - condition: trigger
-        id: ["periodic_enforce", "ha_start", "window_open", "window_close", "occ_on", "occ_off", "pre_on", "pre_off", "opt_stop_on", "opt_stop_off", "sleep_on", "sleep_off"]
+        id: ["periodic_enforce", "ha_start", "window_open", "window_close", "occ_on", "occ_off", "pre_on", "pre_off", "opt_stop_on", "opt_stop_off", "sleep_on", "sleep_off", "inhibit_on", "inhibit_off"]
 
 actions:
   # 1. METRIC SYSTEM GUARD (Active check with feedback)
