@@ -1,5 +1,5 @@
 blueprint:
-  name: EN 16798-1 – Smart Setpoint v5.5.1
+  name: EN 16798-1 – Smart Setpoint v5.5.2
   description: |
     Automated setpoint control strictly following EN 16798-1 & ASR A3.5 logic.
 
@@ -17,6 +17,12 @@ blueprint:
     so the inhibit entity is now a first-class reactive trigger, eliminating the
     race condition between `occ_on` writing Comfort and the inhibit block
     correcting it.
+
+    **v5.5.2:** All final setpoint writes (`send_temp`, dry-air reduced setpoint,
+    external inhibit setpoint) now snap to the climate device's reported
+    `target_temp_step` (e.g. 0.5°C for Japanese A/C units that reject 0.1°C
+    increments). No new configuration required — the step is read automatically
+    from the device.
 
     **⚠️ IMPORTANT:**
     - Designed for **Metric Systems (°C)** only.
@@ -1368,7 +1374,9 @@ actions:
         
       send_temp: >
         {% set lo = dev_lo_eff | float %}{% set hi = dev_hi_eff | float %}
-        {{ [ hi, [ target_to_send | float, lo ] | max ] | min | round(1) }}
+        {% set step = v_step | float(0.5) %}
+        {% set raw = [ hi, [ target_to_send | float, lo ] | max ] | min %}
+        {{ ((raw / step) | round(0) * step) | round(1) }}
         
       was_clamped: >
         {% set t = target_to_send | float %}{% set s = send_temp | float %}
@@ -1399,8 +1407,10 @@ actions:
 
       dry_air_reduced_setpoint: >
         {% if limit_dry_air | bool %}
+          {% set step = v_step | float(0.5) %}
           {% set reduced = (send_temp | float) - (v_dry_air_shift_k_in | float(2.0)) %}
-          {{ [dev_hi_eff | float, [reduced, dev_lo_eff | float] | max] | min | round(1) }}
+          {% set clamped = [dev_hi_eff | float, [reduced, dev_lo_eff | float] | max] | min %}
+          {{ ((clamped / step) | round(0) * step) | round(1) }}
         {% else %}
           {{ send_temp }}
         {% endif %}
@@ -1733,21 +1743,26 @@ actions:
           inhibit_policy: '{{ v_ext_inhibit_policy | default("none") }}'
           # Compute inhibit-modified setpoint for setpoint-changing policies
           inhibit_send_temp: >
+            {% set step = v_step | float(0.5) %}
             {% if not (inhibit_active | bool) %}
               {{ send_temp }}
             {% elif inhibit_policy == 'force_eco' %}
               {% set base = target_comfort_eff | float %}
               {% set eco_k = eco_shift_k | float(2.0) %}
               {% if season_ctrl == 'cooling' %}
-                {{ [dev_hi_eff | float, [base + eco_k, dev_lo_eff | float] | max] | min | round(1) }}
+                {% set raw = [dev_hi_eff | float, [base + eco_k, dev_lo_eff | float] | max] | min %}
+                {{ ((raw / step) | round(0) * step) | round(1) }}
               {% else %}
-                {{ [dev_hi_eff | float, [base - eco_k, dev_lo_eff | float] | max] | min | round(1) }}
+                {% set raw = [dev_hi_eff | float, [base - eco_k, dev_lo_eff | float] | max] | min %}
+                {{ ((raw / step) | round(0) * step) | round(1) }}
               {% endif %}
             {% elif inhibit_policy == 'maintain_only' %}
-              {{ [dev_hi_eff | float, [target_comfort_eff | float, dev_lo_eff | float] | max] | min | round(1) }}
+              {% set raw = [dev_hi_eff | float, [target_comfort_eff | float, dev_lo_eff | float] | max] | min %}
+              {{ ((raw / step) | round(0) * step) | round(1) }}
             {% elif inhibit_policy == 'block_preheat_only' %}
               {% if active_mode_label == 'PRE-HEAT' %}
-                {{ [dev_hi_eff | float, [target_comfort_eff | float, dev_lo_eff | float] | max] | min | round(1) }}
+                {% set raw = [dev_hi_eff | float, [target_comfort_eff | float, dev_lo_eff | float] | max] | min %}
+                {{ ((raw / step) | round(0) * step) | round(1) }}
               {% else %}
                 {{ send_temp }}
               {% endif %}
