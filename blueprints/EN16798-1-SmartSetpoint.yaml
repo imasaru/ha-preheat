@@ -823,6 +823,27 @@ variables:
   v_learn_max_k_in: !input learn_max_k
   v_learn_helper_in: !input learn_helper
   v_enforce: 15
+  # --- ROOM PROFILES (single source of truth, used by early inhibit + core logic) ---
+  v_profile_base:
+    living_room: 21.5
+    kids_room: 22.0
+    bedroom: 18.5
+    kitchen: 20.5
+    bathroom: 22.5
+    wc_office: 21.0
+    hallway: 17.5
+    workshop: 17.0
+    storage: 16.0
+  v_profile_cat:
+    living_room: II
+    kids_room: II
+    bedroom: III
+    kitchen: II
+    bathroom: I
+    wc_office: II
+    hallway: III
+    workshop: III
+    storage: III
 
 conditions:
   - condition: template
@@ -1036,13 +1057,7 @@ actions:
                  and v_ext_inhibit_policy in ['force_eco', 'maintain_only'] }}
         sequence:
           - variables:
-              early_base_temp: >
-                {% set profile = {
-                  'living_room': 21.5, 'kids_room': 22.0, 'bedroom': 18.5,
-                  'kitchen': 20.5, 'bathroom': 22.5, 'wc_office': 21.0,
-                  'hallway': 17.5, 'workshop': 17.0, 'storage': 16.0
-                } %}
-                {{ profile[v_room_type] | float(21.0) }}
+              early_base_temp: '{{ v_profile_base[v_room_type] | float(21.0) }}'
               early_inhibit_temp: >
                 {% set base = early_base_temp | float %}
                 {% set eco_k = v_eco_shift_k_in | float(2.0) %}
@@ -1089,26 +1104,6 @@ actions:
   - alias: "Core Logic: Calculate All Variables"
     variables:
       # --- PROFILES ---
-      v_profile_base:
-        living_room: 21.5
-        kids_room: 22.0
-        bedroom: 18.5
-        kitchen: 20.5
-        bathroom: 22.5
-        wc_office: 21.0
-        hallway: 17.5
-        workshop: 17.0
-        storage: 16.0
-      v_profile_cat:
-        living_room: II
-        kids_room: II
-        bedroom: III
-        kitchen: II
-        bathroom: I
-        wc_office: II
-        hallway: III
-        workshop: III
-        storage: III
       v_base_pref: '{{ v_profile_base[v_room_type] }}'
       v_cat: '{{ v_profile_cat[v_room_type] }}'
       
