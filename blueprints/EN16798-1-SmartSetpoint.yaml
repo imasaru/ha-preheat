@@ -1,5 +1,5 @@
 blueprint:
-  name: EN 16798-1 – Smart Setpoint v5.5.3
+  name: EN 16798-1 – Smart Setpoint v5.5.4
   description: |
     Automated setpoint control strictly following EN 16798-1 & ASR A3.5 logic.
 
@@ -36,6 +36,12 @@ blueprint:
     the early exit (normal pipeline still runs; the existing late inhibit block
     handles it). The `inhibit_on`/`inhibit_off` triggers added in v5.5.1 are
     retained for immediate reactivity on inhibitor state changes.
+
+    **v5.5.4:** Fix invalid HA automation YAML schema error introduced in
+    v5.5.3. Home Assistant does not allow a `variables:` key at the root level
+    of an action alongside `choose:`. The `early_inhibit_active` variable has
+    been inlined directly into the `choose` condition `value_template` fields,
+    removing the schema-violating block while preserving identical behaviour.
 
     **⚠️ IMPORTANT:**
     - Designed for **Metric Systems (°C)** only.
@@ -1021,16 +1027,13 @@ actions:
   # block_preheat_only is intentionally excluded — it allows normal comfort when
   # the mode is not PRE-HEAT, and the existing late inhibit block handles it.
   - alias: "External Inhibit: Early Priority Check"
-    variables:
-      early_inhibit_active: >
-        {% set ent = v_ext_inhibit_entity %}
-        {{ ent not in [none, [], ''] and is_state(ent, 'on') }}
     choose:
       # HVAC Off policy — always stop; only send set_hvac_mode when a change is needed
       - conditions:
           - condition: template
             value_template: >
-              {{ (early_inhibit_active | bool)
+              {% set ent = v_ext_inhibit_entity %}
+              {{ ent not in [none, [], ''] and is_state(ent, 'on')
                  and v_ext_inhibit_policy == 'hvac_off' }}
         sequence:
           - if:
@@ -1059,7 +1062,8 @@ actions:
       - conditions:
           - condition: template
             value_template: >
-              {{ (early_inhibit_active | bool)
+              {% set ent = v_ext_inhibit_entity %}
+              {{ ent not in [none, [], ''] and is_state(ent, 'on')
                  and v_ext_inhibit_policy in ['force_eco', 'maintain_only'] }}
         sequence:
           - variables:
