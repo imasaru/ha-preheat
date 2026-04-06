@@ -1,5 +1,5 @@
 blueprint:
-  name: EN 16798-1 – Smart Setpoint v5.5.2
+  name: EN 16798-1 – Smart Setpoint v5.5.3
   description: |
     Automated setpoint control strictly following EN 16798-1 & ASR A3.5 logic.
 
@@ -23,6 +23,17 @@ blueprint:
     `target_temp_step` (e.g. 0.5°C for Japanese A/C units that reject 0.1°C
     increments). No new configuration required — the step is read automatically
     from the device.
+
+    **v5.5.3:** Fix External Inhibit race condition — early short-circuit for
+    `force_eco`, `maintain_only`, and `hvac_off` policies. A new guard step is
+    inserted immediately after the Window Check and before the Core Logic block.
+    When the inhibitor is active and the policy is `force_eco`, `maintain_only`,
+    or `hvac_off`, the automation computes the eco setpoint (or turns HVAC off),
+    writes it, and calls `stop` — preventing the normal Comfort write path from
+    ever executing. The `block_preheat_only` policy is intentionally excluded
+    from the early exit (normal pipeline still runs; the existing late inhibit
+    block handles it). The `inhibit_on`/`inhibit_off` triggers added in v5.5.1
+    are retained for immediate reactivity on inhibitor state changes.
 
     **⚠️ IMPORTANT:**
     - Designed for **Metric Systems (°C)** only.
@@ -979,6 +990,100 @@ actions:
                           name: EN 16798-1 Ctrl
                           message: "Window Close: Preset reset."
                           entity_id: !input climate_entity
+
+  # 4b. EARLY INHIBIT SHORT-CIRCUIT
+  # Runs before any setpoint variable is calculated.  Policies that must always
+  # win unconditionally (hvac_off, force_eco, maintain_only) compute a minimal
+  # eco setpoint here and call stop so the normal Comfort write path never runs.
+  # block_preheat_only is intentionally excluded — it allows normal comfort when
+  # the mode is not PRE-HEAT, and the existing late inhibit block handles it.
+  - alias: "External Inhibit: Early Priority Check"
+    variables:
+      early_inhibit_active: >
+        {% set ent = v_ext_inhibit_entity %}
+        {{ ent not in [none, [], ''] and is_state(ent, 'on') }}
+    choose:
+      # HVAC Off policy — turn off and stop immediately
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ (early_inhibit_active | bool)
+                 and v_ext_inhibit_policy == 'hvac_off'
+                 and 'off' in (state_attr(v_climate, 'hvac_modes') or [])
+                 and states(v_climate) != 'off' }}
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ v_logging | bool }}"
+            then:
+              - action: logbook.log
+                data:
+                  name: EN 16798-1 Ctrl
+                  message: "External Inhibit (hvac_off): HVAC set to OFF [early exit]."
+                  entity_id: !input climate_entity
+          - action: climate.set_hvac_mode
+            target:
+              entity_id: !input climate_entity
+            data:
+              hvac_mode: 'off'
+          - stop: "External Inhibit (HVAC Off) — early exit."
+
+      # force_eco / maintain_only — compute eco setpoint from room profile and stop
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ (early_inhibit_active | bool)
+                 and v_ext_inhibit_policy in ['force_eco', 'maintain_only'] }}
+        sequence:
+          - variables:
+              early_base_temp: >
+                {% set profile = {
+                  'living_room': 21.5, 'kids_room': 22.0, 'bedroom': 18.5,
+                  'kitchen': 20.5, 'bathroom': 22.5, 'wc_office': 21.0,
+                  'hallway': 17.5, 'workshop': 17.0, 'storage': 16.0
+                } %}
+                {{ profile[v_room_type] | float(21.0) }}
+              early_inhibit_temp: >
+                {% set base = early_base_temp | float %}
+                {% set eco_k = v_eco_shift_k_in | float(2.0) %}
+                {% set lo = state_attr(v_climate, 'min_temp') | float(v_safety_min_limit | float(16.0)) %}
+                {% set hi = state_attr(v_climate, 'max_temp') | float(30.0) %}
+                {% set step = state_attr(v_climate, 'target_temp_step') | float(0.5) %}
+                {% if v_ext_inhibit_policy == 'force_eco' %}
+                  {% set raw = [hi, [base - eco_k, lo] | max] | min %}
+                  {{ ((raw / step) | round(0) * step) | round(1) }}
+                {% else %}
+                  {% set raw = [hi, [base, lo] | max] | min %}
+                  {{ ((raw / step) | round(0) * step) | round(1) }}
+                {% endif %}
+              early_already_set: >
+                {% set cur = state_attr(v_climate, 'temperature') %}
+                {% set step = state_attr(v_climate, 'target_temp_step') | float(0.5) %}
+                {% if cur is number %}
+                  {{ ((early_inhibit_temp | float) - (cur | float)) | abs < ([step, 0.2] | max) * 0.999 }}
+                {% else %}
+                  {{ false }}
+                {% endif %}
+          - if:
+              - condition: template
+                value_template: "{{ not (early_already_set | bool) }}"
+            then:
+              - if:
+                  - condition: template
+                    value_template: "{{ v_logging | bool }}"
+                then:
+                  - action: logbook.log
+                    data:
+                      name: EN 16798-1 Ctrl
+                      message: >
+                        External Inhibit ({{ v_ext_inhibit_policy }}): Setpoint → {{ early_inhibit_temp }}°C [early exit].
+                      entity_id: !input climate_entity
+              - action: climate.set_temperature
+                target:
+                  entity_id: !input climate_entity
+                data:
+                  temperature: '{{ early_inhibit_temp | float | round(1) }}'
+          - stop: "External Inhibit (setpoint policy) — early exit."
 
   # 5. CORE LOGIC: Single Point of Truth Calculation
   - alias: "Core Logic: Calculate All Variables"
