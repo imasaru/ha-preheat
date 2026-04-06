@@ -24,16 +24,18 @@ blueprint:
     increments). No new configuration required — the step is read automatically
     from the device.
 
-    **v5.5.3:** Fix External Inhibit race condition — early short-circuit for
-    `force_eco`, `maintain_only`, and `hvac_off` policies. A new guard step is
-    inserted immediately after the Window Check and before the Core Logic block.
-    When the inhibitor is active and the policy is `force_eco`, `maintain_only`,
-    or `hvac_off`, the automation computes the eco setpoint (or turns HVAC off),
-    writes it, and calls `stop` — preventing the normal Comfort write path from
-    ever executing. The `block_preheat_only` policy is intentionally excluded
-    from the early exit (normal pipeline still runs; the existing late inhibit
-    block handles it). The `inhibit_on`/`inhibit_off` triggers added in v5.5.1
-    are retained for immediate reactivity on inhibitor state changes.
+    **v5.5.3:** Complete the External Inhibit race-condition fix — add an early
+    short-circuit for `force_eco`, `maintain_only`, and `hvac_off` policies.
+    This follows the v5.5.1 trigger/reactivity improvement by closing the
+    remaining execution-order path. A new guard step is inserted immediately
+    after the Window Check and before the Core Logic block. When the inhibitor
+    is active and the policy is `force_eco`, `maintain_only`, or `hvac_off`,
+    the automation computes the eco setpoint (or turns HVAC off), writes it,
+    and calls `stop` — preventing the normal Comfort write path from ever
+    executing. The `block_preheat_only` policy is intentionally excluded from
+    the early exit (normal pipeline still runs; the existing late inhibit block
+    handles it). The `inhibit_on`/`inhibit_off` triggers added in v5.5.1 are
+    retained for immediate reactivity on inhibitor state changes.
 
     **⚠️ IMPORTANT:**
     - Designed for **Metric Systems (°C)** only.
