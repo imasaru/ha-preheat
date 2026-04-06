@@ -1063,6 +1063,40 @@ actions:
                  and v_ext_inhibit_policy in ['force_eco', 'maintain_only'] }}
         sequence:
           - variables:
+              early_season_ctrl: >
+                {# Replicate Core Logic season_ctrl from top-level inputs, so the eco
+                   direction is correct: heating → base-eco_k, cooling → base+eco_k. #}
+                {% set trm = v_trm_val %}
+                {% set sys_modes = state_attr(v_climate, 'hvac_modes') or [] %}
+                {% set has_heat = 'heat' in sys_modes %}
+                {% set has_cool = 'cool' in sys_modes or 'heat_cool' in sys_modes or 'auto' in sys_modes %}
+                {% set sys_hint = 'cooling' if (not has_heat and has_cool) else ('heat_cool' if (has_heat and has_cool) else 'heating') %}
+                {% set season_raw = 'unknown' if (trm is not number) else ('heating' if (trm | float) < 10 else ('cooling' if (trm | float) > 15 else 'transition')) %}
+                {% set st = v_system_type_in | default('auto_detect') %}
+                {% set ns = namespace(se='heating') %}
+                {% if v_trm_missing or (trm is not number) %}
+                  {% set cm = states(v_climate) %}
+                  {% set act = state_attr(v_climate, 'hvac_action') %}
+                  {% if cm == 'cool' or act == 'cooling' %}{% set ns.se = 'cooling' %}
+                  {% elif cm == 'heat' or act == 'heating' %}{% set ns.se = 'heating' %}
+                  {% elif v_system_type_in == 'cooling' %}{% set ns.se = 'cooling' %}
+                  {% else %}{% set ns.se = 'heating' %}{% endif %}
+                {% elif st == 'cooling' %}{% set ns.se = 'cooling' %}
+                {% elif st == 'heating' %}{% set ns.se = 'heating' %}
+                {% elif st == 'heat_cool' %}
+                  {% set ns.se = 'cooling' if season_raw == 'cooling' else ('heating' if season_raw == 'heating' else 'transition') %}
+                {% else %}
+                  {% if season_raw in ['heating', 'cooling', 'transition'] %}{% set ns.se = season_raw %}
+                  {% elif sys_hint == 'cooling' %}{% set ns.se = 'cooling' %}
+                  {% else %}{% set ns.se = 'heating' %}{% endif %}
+                {% endif %}
+                {% set se = ns.se %}
+                {% if se in ['heating', 'cooling'] %}{{ se }}
+                {% elif v_transition_policy == 'cooling' %}cooling
+                {% elif v_transition_policy == 'auto' %}
+                  {% set an = (0.33 * (trm | float) + 18.8) if (trm is number and (trm | float) >= 10 and (trm | float) <= 30) else none %}
+                  {{ 'cooling' if (an is not none and (an | float) >= 23.0) else 'heating' }}
+                {% else %}heating{% endif %}
               early_base_temp: '{{ v_profile_base[v_room_type] | float(21.0) }}'
               early_inhibit_temp: >
                 {% set base = early_base_temp | float %}
@@ -1071,7 +1105,8 @@ actions:
                 {% set hi = state_attr(v_climate, 'max_temp') | float(30.0) %}
                 {% set step = state_attr(v_climate, 'target_temp_step') | float(0.5) %}
                 {% if v_ext_inhibit_policy == 'force_eco' %}
-                  {% set raw = [hi, [base - eco_k, lo] | max] | min %}
+                  {% set eco_base = base + eco_k if early_season_ctrl == 'cooling' else base - eco_k %}
+                  {% set raw = [hi, [eco_base, lo] | max] | min %}
                   {{ ((raw / step) | round(0) * step) | round(1) }}
                 {% else %}
                   {% set raw = [hi, [base, lo] | max] | min %}
