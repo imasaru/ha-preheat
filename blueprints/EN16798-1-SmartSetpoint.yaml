@@ -1024,29 +1024,33 @@ actions:
         {% set ent = v_ext_inhibit_entity %}
         {{ ent not in [none, [], ''] and is_state(ent, 'on') }}
     choose:
-      # HVAC Off policy — turn off and stop immediately
+      # HVAC Off policy — always stop; only send set_hvac_mode when a change is needed
       - conditions:
           - condition: template
             value_template: >
               {{ (early_inhibit_active | bool)
-                 and v_ext_inhibit_policy == 'hvac_off'
-                 and 'off' in (state_attr(v_climate, 'hvac_modes') or [])
-                 and states(v_climate) != 'off' }}
+                 and v_ext_inhibit_policy == 'hvac_off' }}
         sequence:
           - if:
               - condition: template
-                value_template: "{{ v_logging | bool }}"
+                value_template: >
+                  {{ 'off' in (state_attr(v_climate, 'hvac_modes') or [])
+                     and states(v_climate) != 'off' }}
             then:
-              - action: logbook.log
-                data:
-                  name: EN 16798-1 Ctrl
-                  message: "External Inhibit (hvac_off): HVAC set to OFF [early exit]."
+              - if:
+                  - condition: template
+                    value_template: "{{ v_logging | bool }}"
+                then:
+                  - action: logbook.log
+                    data:
+                      name: EN 16798-1 Ctrl
+                      message: "External Inhibit (hvac_off): HVAC set to OFF [early exit]."
+                      entity_id: !input climate_entity
+              - action: climate.set_hvac_mode
+                target:
                   entity_id: !input climate_entity
-          - action: climate.set_hvac_mode
-            target:
-              entity_id: !input climate_entity
-            data:
-              hvac_mode: 'off'
+                data:
+                  hvac_mode: 'off'
           - stop: "External Inhibit (HVAC Off) — early exit."
 
       # force_eco / maintain_only — compute eco setpoint from room profile and stop
